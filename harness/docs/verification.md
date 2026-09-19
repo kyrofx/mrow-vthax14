@@ -5,21 +5,83 @@ real music library, or Mixxx fork was available for these checks.
 
 ## Automated
 
-`python3 -m unittest discover -s harness/tests -v` — 22 tests passed.
+`python3 -m unittest discover -s harness/tests -v` — 38 tests passed.
+`python3 -m unittest discover -s RPI/tests -v` — 10 tests passed (crowd buttons).
 `node --check harness/src/app.js` — passed.
 `git diff --check` — passed.
 
-Coverage includes atomic imports, rich feature preservation and score effects,
-unknown-feature handling, score decomposition, actual performance BPM,
+Harness coverage includes atomic imports, rich feature preservation and score
+effects, unknown-feature handling, score decomposition, actual performance BPM,
 half/double-time continuity, learned transitions, session exclusions, feedback
 replacement and persistence, event deduplication, database migration, bounded
-planning, infeasible constraints, and playlist order.
+planning, infeasible constraints, and playlist order. Added for the Mixxx
+integration: per-drive sync (lenient about unanalyzed tracks), ejected drives
+keeping history but leaving the suggestions, generated features surviving a
+sync, and the model client against both the OpenAI and Anthropic protocols —
+alias mapping so no path leaves the device, invented or duplicate picks
+ignored, refusals, timeouts, connection errors and malformed replies all
+falling back to the local ranking, and the response cache.
 
 The HTTP end-to-end test sends a Musicsearch-format import, records/retries a
 play, changes good to bad, checks stored state, skips a suggestion, generates a
 constrained setlist, exports the exact ordered paths, and reconstructs the service
 against the same database to verify persistence. All without recording planned
 tracks as actual plays.
+
+Button-daemon coverage: config validation (bad pins, notes, channels, duplicate
+pins or notes), the defaults matching the shipped Mixxx mapping, press/release
+note bytes, bounce rejection, repeated states, a release with no press, and
+unknown pins.
+
+## BiteDJ fork (C++)
+
+Built in the project's Debian trixie arm64 container (`Mixxx/bitedj`,
+`docker compose run --rm pi`), which is the same Debian release as the
+appliance. `./mixxx-test --gtest_filter="Harness*"` — 10 tests passed: track
+ids keyed by drive UUID and relative path (including a re-plug under another
+mount point), Camelot conversion, session naming, and — against a fake harness
+over real HTTP — plays with their track metadata, a rating made before the play
+is acknowledged, ratings collapsing before that acknowledgement, the `[Harness]`
+controls, skips, queue-and-retry while the harness is down, starting a new set,
+and a disabled bridge sending nothing.
+
+## On screen
+
+The app was run in the container against a real harness process on a seeded
+six-track library, on an 800×480 virtual display over VNC (`docker compose up
+pi-run`). Verified: the Assist tab appears in the topbar; the panel reports the
+assistant online and which ranking answered; ratings are disabled until
+something has played ("Nothing played yet"); four suggestions render with BPM,
+key and the reason, each with Load 1 / Load 2 / Skip; and tapping Skip removes
+that row, posts the skip, and refills from the harness.
+
+Not exercised in the container: loading a suggestion into a deck (no audio
+device or real files), the Rekordbox catalog sync (no drive) and the GPIO
+buttons (no hardware). The first two were covered on the device instead — see
+below.
+
+
+## On the device (flx4)
+
+Deployed with `RPI/scripts/deploy.sh --no-build` on 2026-09-19. Binary and
+resource checksums match the staged tree; `/usr/local` was written through the
+staging directory with sudo, as ssh cannot write there.
+
+Verified on the Pi itself:
+
+- **Rekordbox catalog sync**: 2034 tracks off a real USB drive, keyed by its
+  filesystem UUID, all marked available. Every one carries a Camelot key and a
+  duration, 823 distinct BPMs, artists on all but 73. Genres on only 12 — that
+  drive's export simply has few.
+- **The harness service** runs and answers `/health`, with its database in
+  `~/.mixxx/harness/`.
+- **The crowd buttons service** runs and its virtual MIDI port is live on the
+  ALSA sequencer (`client 129: 'MROW Crowd Buttons'`). `python3-rtmidi` had to
+  be installed; the deploy script now does that when missing.
+
+Still not verified: pressing a physical button (none wired yet), a real cloud
+model endpoint (no key configured), loading a suggestion into a deck, and
+everything about performance during a set.
 
 ## Browser
 
