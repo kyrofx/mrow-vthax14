@@ -77,6 +77,7 @@
 #include "widget/waudiodevicelist.h"
 #include "widget/wcontrollerlist.h"
 #include "widget/wsamplerdrive.h"
+#include "widget/wharnesspanel.h"
 #include "widget/wusblist.h"
 #include "widget/wversionlabel.h"
 #include "widget/wnotificationstrip.h"
@@ -572,6 +573,8 @@ QList<QWidget*> LegacySkinParser::parseNode(const QDomElement& node) {
         result = wrapWidget(parseStandardWidget<WSamplerDrive>(node));
     } else if (nodeName == "UsbList") {
         result = wrapWidget(parseStandardWidget<WUsbList>(node));
+    } else if (nodeName == "HarnessPanel") {
+        result = wrapWidget(parseStandardWidget<WHarnessPanel>(node));
     } else if (nodeName == "Display") {
         result = wrapWidget(parseStandardWidget<WDisplay>(node));
     } else if (nodeName == "BeatSpinBox") {

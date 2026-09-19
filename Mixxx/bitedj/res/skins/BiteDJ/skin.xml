@@ -76,6 +76,12 @@
 			</Children>
 		</SingletonDefinition>
 		<SingletonDefinition>
+			<ObjectName>Assist_Singleton</ObjectName>
+			<Children>
+				<Template src="skin:assist.xml"/>
+			</Children>
+		</SingletonDefinition>
+		<SingletonDefinition>
 			<ObjectName>Settings_Singleton</ObjectName>
 			<Children>
 				<Template src="skin:settings.xml"/>
@@ -159,6 +165,11 @@
 								</SingletonContainer>
 								<SingletonContainer trigger="[Tab],settings" on_hide_select="0">
 									<ObjectName>Settings_Singleton</ObjectName>
+								</SingletonContainer>
+								<!-- Last, so the indices above are unchanged; its tab
+								     button sits before Settings in topbar.xml. -->
+								<SingletonContainer trigger="[Tab],assist" on_hide_select="0">
+									<ObjectName>Assist_Singleton</ObjectName>
 								</SingletonContainer>
 							</Children>
 						</WidgetStack>

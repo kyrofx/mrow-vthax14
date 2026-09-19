@@ -1,0 +1,18 @@
+<!-- Assist: the harness sidecar's view of the set (HarnessBridge). The play
+     being rated with Good / Mid / Bad, and next-song suggestions that load only
+     when tapped. Everything inside is built by the HarnessPanel widget; the
+     same actions are [Harness] controls, so the GPIO crowd buttons and any
+     controller mapping drive them too. -->
+<Template>
+  <WidgetGroup>
+    <ObjectName>Assist</ObjectName>
+    <Layout>vertical</Layout>
+    <SizePolicy>me,me</SizePolicy>
+    <Children>
+      <HarnessPanel>
+        <ObjectName>HarnessPanel</ObjectName>
+        <SizePolicy>me,me</SizePolicy>
+      </HarnessPanel>
+    </Children>
+  </WidgetGroup>
+</Template>

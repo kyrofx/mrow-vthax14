@@ -1035,6 +1035,7 @@ add_library(mixxx-lib STATIC EXCLUDE_FROM_ALL
   src/widget/wsplitter.cpp
   src/widget/wstarrating.cpp
   src/widget/wsamplerdrive.cpp
+  src/widget/wharnesspanel.cpp
   src/widget/wusblist.cpp
   src/widget/wversionlabel.cpp
   src/widget/wstatuslight.cpp

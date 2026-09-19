@@ -1432,6 +1432,110 @@ WBeatSpinBox::up-button {
   qproperty-layoutAlignment: 'AlignTop';
 }
 
+/* ------------------------------------------------------------------ */
+/*     Assist (HarnessPanel)                                           */
+/* ------------------------------------------------------------------ */
+
+#Assist {
+  padding: 10px 16px;
+}
+
+/* Status line: dim when the harness is offline, blue when it is answering on
+ * its own, highlight purple when the cloud model refined the picks. */
+#HarnessPanel #HarnessStatus {
+  color: #a7a9ac;
+  font-size: 13px;
+  min-height: 44px;
+}
+
+#HarnessPanel #HarnessStatus[status="offline"] {
+  color: #c2453d;
+}
+
+#HarnessPanel #HarnessStatus[status="model"] {
+  color: #b48ed6;
+}
+
+#HarnessPanel #HarnessNowPlaying,
+#HarnessPanel #HarnessSuggestion,
+#HarnessPanel #HarnessEmpty {
+  background-color: #151515;
+  border-radius: 4px;
+  color: #e5e6ea;
+  font-size: 14px;
+  min-height: 56px;
+  padding: 0 12px;
+}
+
+#HarnessPanel #HarnessNowPlaying {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+#HarnessPanel #HarnessEmpty {
+  color: #a7a9ac;
+  padding: 12px;
+}
+
+/* Same outlined-at-rest, filled-while-pressed buttons as the USB list, at the
+ * same 56px row height and 44px touch floor. */
+#HarnessPanel #HarnessRateButton,
+#HarnessPanel #HarnessLoadButton,
+#HarnessPanel #HarnessSkipButton,
+#HarnessPanel #HarnessRefreshButton {
+  background-color: transparent;
+  border: 2px solid #855ea7;
+  border-radius: 4px;
+  color: #7fb2d6;
+  font-size: 14px;
+  font-weight: bold;
+  min-height: 56px;
+  min-width: 88px;
+  padding: 0 12px;
+  text-transform: uppercase;
+}
+
+#HarnessPanel #HarnessRefreshButton {
+  min-height: 44px;
+}
+
+#HarnessPanel #HarnessRateButton:pressed,
+#HarnessPanel #HarnessLoadButton:pressed,
+#HarnessPanel #HarnessSkipButton:pressed,
+#HarnessPanel #HarnessRefreshButton:pressed {
+  background-color: #2d6488;
+  color: #e5e6ea;
+}
+
+#HarnessPanel #HarnessRateButton:disabled {
+  border-color: #3a3a3a;
+  color: #5c5e61;
+}
+
+/* The rating given to the current play stays lit: green, amber, red. */
+#HarnessPanel #HarnessRateButton[rating="3"][selected="true"] {
+  background-color: #2f6b3a;
+  border-color: #5fb36b;
+  color: #e5e6ea;
+}
+
+#HarnessPanel #HarnessRateButton[rating="2"][selected="true"] {
+  background-color: #6b5520;
+  border-color: #d6a23d;
+  color: #e5e6ea;
+}
+
+#HarnessPanel #HarnessRateButton[rating="1"][selected="true"] {
+  background-color: #7a2622;
+  border-color: #c2453d;
+  color: #f0d5d2;
+}
+
+#HarnessPanel #HarnessSkipButton {
+  border-color: #5c5e61;
+  color: #a7a9ac;
+}
+
 #LevelRow {
   background-color: #151515;
   border-radius: 4px;
