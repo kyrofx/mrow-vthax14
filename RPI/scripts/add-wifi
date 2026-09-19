@@ -1,0 +1,86 @@
+#!/bin/bash
+# Store a WiFi network for later without connecting to it now.
+#
+# The appliance moves between venues, so the networks it needs are usually out
+# of range at the moment you configure them. NetworkManager is happy to hold a
+# profile for a network it has never seen: adding one does not scan, associate,
+# or disturb the link you are currently on. When the SSID later appears,
+# autoconnect picks it up.
+#
+# Usage:
+#   add-wifi <SSID>                    # prompts for the password (not echoed)
+#   add-wifi <SSID> --hidden           # network does not broadcast its SSID
+#   add-wifi <SSID> --priority 10      # wins over lower-priority nets in range
+#   add-wifi --list                    # show what is stored
+#   add-wifi --forget <SSID>
+#
+# The password is read from a prompt rather than argv so it never lands in
+# shell history or in `ps` output.
+
+set -euo pipefail
+
+usage() { sed -n '2,25p' "$0" | sed 's/^# \?//'; exit 1; }
+
+case "${1:-}" in
+    --list)
+        # One awk, not `head -1; grep` -- head consumes a whole buffered block
+        # of stdin and the grep downstream then sees an empty stream.
+        nmcli -f NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY connection show \
+            | awk 'NR==1 || tolower($0) ~ /wifi|802-11-wireless/'
+        exit 0
+        ;;
+    --forget)
+        [ $# -eq 2 ] || usage
+        sudo nmcli connection delete "$2"
+        exit 0
+        ;;
+    ""|-h|--help) usage ;;
+esac
+
+ssid="$1"; shift
+hidden="no"
+priority="0"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --hidden)   hidden="yes"; shift ;;
+        --priority) priority="${2:?--priority needs a number}"; shift 2 ;;
+        *) echo "add-wifi: unknown option '$1'" >&2; usage ;;
+    esac
+done
+
+if nmcli -t -f NAME connection show | grep -qxF "$ssid"; then
+    echo "add-wifi: a profile named '$ssid' already exists. Use --forget first." >&2
+    exit 1
+fi
+
+printf 'Password for "%s" (input hidden, empty for an open network): ' "$ssid" >&2
+read -rs pass
+echo >&2
+
+# ifname '*' so the profile is not pinned to the current interface name.
+args=(
+    type wifi
+    con-name "$ssid"
+    ifname '*'
+    ssid "$ssid"
+    autoconnect yes
+    connection.autoconnect-priority "$priority"
+    802-11-wireless.hidden "$hidden"
+)
+
+if [ -n "$pass" ]; then
+    args+=(
+        wifi-sec.key-mgmt wpa-psk
+        wifi-sec.psk "$pass"
+        # 0 = store the secret in the system connection file, so the appliance
+        # can associate at boot with nobody logged in to answer a secret agent.
+        wifi-sec.psk-flags 0
+    )
+fi
+
+sudo nmcli connection add "${args[@]}" > /dev/null
+sudo chmod 600 "/etc/NetworkManager/system-connections/$ssid.nmconnection" 2>/dev/null || true
+
+echo "Stored '$ssid' (hidden=$hidden, priority=$priority). Not connected; it will"
+echo "associate automatically whenever that network is in range."

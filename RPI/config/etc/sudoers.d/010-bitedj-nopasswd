@@ -1,0 +1,9 @@
+# OPTIONAL -- convenience for remote administration, NOT required by the appliance.
+#
+# Grants passwordless sudo so the box can be configured over SSH without an
+# interactive password. Reconsider this before shipping anything to a customer:
+# it means anyone who reaches a shell as this user is root.
+#
+# Install with `visudo -c -f` validation; a malformed sudoers file locks you out
+# of sudo entirely. install-runtime.sh does this check.
+BITEDJ_USER ALL=(ALL) NOPASSWD: ALL

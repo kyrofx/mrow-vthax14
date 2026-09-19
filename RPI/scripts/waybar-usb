@@ -1,0 +1,27 @@
+#!/bin/bash
+# Waybar custom module: what is mounted under /media/<user>.
+# Emits the JSON waybar expects (text/tooltip/class).
+
+media="/media/$USER"
+shopt -s nullglob
+drives=("$media"/*)
+
+if [ ${#drives[@]} -eq 0 ]; then
+    printf '{"text":"no usb","tooltip":"No removable drive mounted","class":"empty"}\n'
+    exit 0
+fi
+
+names=()
+tips=()
+for d in "${drives[@]}"; do
+    [ -d "$d" ] || continue
+    names+=("$(basename "$d")")
+    tips+=("$(basename "$d") — $(df -h --output=avail "$d" 2>/dev/null | tail -1 | tr -d ' ') free")
+done
+
+text=$(IFS=', '; echo "${names[*]}")
+tooltip=$(IFS=$'\n'; echo "${tips[*]}")
+# Escape for JSON: backslashes, quotes, then newlines.
+esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g'; }
+
+printf '{"text":"%s","tooltip":"%s","class":"mounted"}\n' "$(esc "$text")" "$(esc "$tooltip")"

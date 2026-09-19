@@ -1,0 +1,38 @@
+#!/bin/bash
+# Keep BiteDJ up. On an appliance a crash must not leave a dead black screen,
+# but a binary that dies instantly must not spin either -- so restarts are
+# rate-limited and give up after a burst of fast failures.
+
+BIN=/usr/local/bin/mixxx
+LOG="$HOME/.mixxx/mixxx.log"          # config path kept as .mixxx for compatibility
+
+# Qt on Wayland: native backend, no client-side decorations over the DJ UI.
+export QT_QPA_PLATFORM=wayland
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+export QT_SCALE_FACTOR=1
+
+# SystemSettings::removableRoots() builds /media/$USER and /run/media/$USER from
+# getenv("USER"); if the session ever starts without it those two roots collapse
+# to the bare /media and the track browser looks empty for no visible reason.
+export USER="${USER:-$(id -un)}"
+
+fast_failures=0
+while true; do
+    started=$(date +%s)
+    "$BIN" --fullScreen
+    ended=$(date +%s)
+
+    if [ $((ended - started)) -lt 15 ]; then
+        fast_failures=$((fast_failures + 1))
+    else
+        fast_failures=0
+    fi
+
+    if [ "$fast_failures" -ge 5 ]; then
+        echo "bitedj-session: 5 failures in a row, giving up. See $LOG" >&2
+        swaynag -t error -m "BiteDJ keeps crashing on startup. Log: $LOG" 2>/dev/null
+        exit 1
+    fi
+
+    sleep 2
+done

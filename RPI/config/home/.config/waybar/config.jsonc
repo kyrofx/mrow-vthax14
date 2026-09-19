@@ -1,0 +1,61 @@
+// Slim status bar for the BiteDJ appliance. Everything here is something a DJ
+// mid-set actually needs to glance at: the time, whether the USB drive is
+// mounted, output volume, and whether the Pi is about to thermally throttle.
+{
+    "layer": "top",
+    "position": "top",
+    "height": 28,
+    "spacing": 12,
+
+    "modules-left": ["custom/usb"],
+    "modules-center": ["clock"],
+    "modules-right": ["wireplumber", "cpu", "temperature", "memory", "network"],
+
+    // Mounted removable media. The library is drive-first, so "is my stick
+    // actually mounted" is the single most useful thing on this bar.
+    "custom/usb": {
+        "exec": "/home/flx4/.local/bin/waybar-usb",
+        "return-type": "json",
+        "interval": 3,
+        "on-click": "udiskie-umount --detach --all"
+    },
+
+    "clock": {
+        "format": "{:%H:%M}",
+        "tooltip-format": "<big>{:%A %d %B %Y}</big>"
+    },
+
+    "wireplumber": {
+        "format": "vol {volume}%",
+        "format-muted": "muted",
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+    },
+
+    "cpu": {
+        "format": "cpu {usage}%",
+        "interval": 3
+    },
+
+    // The Pi 4 throttles hard without a heatsink, and throttling means audio
+    // dropouts, so this is a warning light rather than a curiosity.
+    "temperature": {
+        "thermal-zone": 0,
+        "critical-threshold": 75,
+        "format": "{temperatureC}°C",
+        "format-critical": "{temperatureC}°C !",
+        "interval": 5
+    },
+
+    "memory": {
+        "format": "mem {percentage}%",
+        "interval": 5
+    },
+
+    "network": {
+        "format-wifi": "{essid}",
+        "format-ethernet": "eth",
+        "format-disconnected": "offline",
+        "tooltip-format": "{ipaddr}",
+        "interval": 10
+    }
+}

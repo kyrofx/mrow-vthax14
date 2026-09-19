@@ -1,0 +1,30 @@
+// BiteDJ appliance polkit policy.
+//
+// The UI exposes power-off and per-drive eject/power-off, and the box has no
+// keyboard to type a password into an auth prompt -- an unanswerable dialog is
+// the same as the feature not working. Grant exactly those actions, and only
+// to a local active session belonging to the audio group.
+polkit.addRule(function(action, subject) {
+    if (!subject.local || !subject.active) {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (!subject.isInGroup("audio")) {
+        return polkit.Result.NOT_HANDLED;
+    }
+
+    // Mount / unmount / eject / power-off of removable media. The library model
+    // is drive-first, so this is the core interaction, not a convenience.
+    if (action.id.indexOf("org.freedesktop.udisks2.") === 0) {
+        return polkit.Result.YES;
+    }
+
+    // The power button in the UI.
+    if (action.id === "org.freedesktop.login1.power-off" ||
+        action.id === "org.freedesktop.login1.power-off-multiple-sessions" ||
+        action.id === "org.freedesktop.login1.reboot" ||
+        action.id === "org.freedesktop.login1.reboot-multiple-sessions") {
+        return polkit.Result.YES;
+    }
+
+    return polkit.Result.NOT_HANDLED;
+});

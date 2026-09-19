@@ -1,0 +1,62 @@
+# BiteDJ appliance session.
+#
+# Boot chain: getty@tty1 autologin -> ~/.profile -> sway -> bitedj-session -> mixxx.
+# The installed binary is named `mixxx` (the fork keeps upstream's target name);
+# only the version string is BiteDJ-branded. Wayland app_id is org.mixxx.Mixxx.
+
+set $mod Mod4
+set $term foot
+
+### Appearance -- the app owns the screen, no window chrome.
+default_border none
+default_floating_border none
+hide_edge_borders both
+gaps inner 0
+gaps outer 0
+output * bg #000000 solid_color
+
+### Input -- touchscreen appliance. Park the pointer when it is idle so a
+### stray cursor does not sit on top of the DJ UI.
+focus_follows_mouse no
+seat * hide_cursor 3000
+
+### The appliance window. Borderless and filling the workspace below waybar;
+### $mod+f gives true fullscreen when the extra 28px matter.
+for_window [app_id="org.mixxx.Mixxx"] inhibit_idle open
+assign [app_id="org.mixxx.Mixxx"] workspace 1
+
+### Anything else that shows up (dialogs, the debug terminal) floats over it.
+for_window [app_id="foot"] floating enable, resize set 900 500, border pixel 2
+
+### Debug escape hatch (CLAUDE.md): plug in a keyboard, $mod+Return for a
+### terminal over the UI. No other bindings, so a stray keypress cannot kill
+### the session mid-set.
+bindsym $mod+Return exec $term
+bindsym $mod+f fullscreen toggle
+bindsym $mod+b exec killall -SIGUSR1 waybar
+bindsym $mod+Shift+r reload
+bindsym $mod+Shift+q kill
+bindsym $mod+Shift+e exec swaynag -t warning -m 'Exit the BiteDJ session?' -B 'Exit' 'swaymsg exit'
+
+### Hand the session environment to systemd --user and D-Bus before anything
+### that might talk to a portal. Without this, xdg-desktop-portal cannot tell
+### which backend to load (sway-portals.conf is keyed on XDG_CURRENT_DESKTOP),
+### every portal call blocks until it times out, and waybar exits.
+exec_always --no-startup-id dbus-update-activation-environment --systemd \
+    WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE SWAYSOCK
+
+### Start waybar ourselves rather than via a `bar` block, so it is ordered
+### strictly after dbus-update-activation-environment above. Launched from a
+### bar block it races the portal and dies on a 40s StartServiceByName timeout.
+exec --no-startup-id waybar
+
+### USB automount. The library model is drive-first -- tracks come from
+### /media/flx4/..., and without this the track browser is simply empty.
+exec --no-startup-id udiskie --automount --notify --no-tray
+
+### Polkit agent, so udiskie's mount/eject and the UI's power-off can
+### authenticate instead of silently failing.
+exec --no-startup-id /usr/libexec/polkit-mate-authentication-agent-1
+
+### The appliance itself.
+exec --no-startup-id $HOME/.local/bin/bitedj-session

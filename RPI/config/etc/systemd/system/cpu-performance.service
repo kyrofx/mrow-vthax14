@@ -1,0 +1,14 @@
+[Unit]
+Description=Pin CPU governor to performance (real-time audio)
+Documentation=man:cpufreq-set(1)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# ondemand ramps too slowly for an audio callback: the engine wakes, the clock
+# is still at 600MHz, and the buffer underruns before the governor reacts.
+ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$g"; done'
+
+[Install]
+WantedBy=multi-user.target

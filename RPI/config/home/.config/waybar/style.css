@@ -1,0 +1,48 @@
+/* Dark, low-contrast bar: it sits above a DJ UI in a dark room and must not
+   pull the eye away from the waveforms. */
+* {
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 13px;
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+}
+
+window#waybar {
+    background: #0b0b0d;
+    color: #c8c8cc;
+}
+
+#custom-usb,
+#clock,
+#wireplumber,
+#cpu,
+#temperature,
+#memory,
+#network {
+    padding: 0 6px;
+}
+
+#clock {
+    font-weight: bold;
+    color: #ffffff;
+}
+
+/* A mounted drive is the good state, so it is the one thing that gets colour. */
+#custom-usb.mounted {
+    color: #4ec9a0;
+}
+
+#custom-usb.empty {
+    color: #6a6a70;
+}
+
+#temperature.critical {
+    color: #ff5f56;
+    font-weight: bold;
+}
+
+tooltip {
+    background: #0b0b0d;
+    border: 1px solid #2a2a30;
+}
