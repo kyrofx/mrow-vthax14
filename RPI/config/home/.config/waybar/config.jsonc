@@ -1,23 +1,77 @@
-// Slim status bar for the BiteDJ appliance. Everything here is something a DJ
-// mid-set actually needs to glance at: the time, whether the USB drive is
-// mounted, output volume, and whether the Pi is about to thermally throttle.
+// Status bar and launcher for the BiteDJ appliance.
+//
+// On workspace 1 this bar sits BEHIND fullscreen BiteDJ and is not visible --
+// deliberately, so nothing covers the DJ UI's own tab strip. It becomes visible
+// on workspace 2, the debug desktop, which is where its launchers are useful.
+// Get there with a three-finger swipe down (see bitedj_docs/desktop-access.md).
+//
+// Everything here is either something a DJ glances at mid-set, or something you
+// need to fix the box without a keyboard. The panel is only 800px wide, so
+// modules that did not earn their width (cpu, memory) were dropped -- use the
+// terminal for those.
 {
     "layer": "top",
     "position": "top",
-    "height": 28,
-    "spacing": 12,
+    // 36px, not 28: these are touch targets now, and ~28px is below what a
+    // fingertip reliably hits. It costs nothing on workspace 1, where the bar
+    // is hidden behind fullscreen BiteDJ anyway.
+    "height": 36,
+    "spacing": 8,
 
-    "modules-left": ["custom/usb"],
+    "modules-left": ["sway/workspaces", "custom/term", "custom/osk", "custom/files", "custom/settings"],
     "modules-center": ["clock"],
-    "modules-right": ["wireplumber", "cpu", "temperature", "memory", "network"],
+    "modules-right": ["custom/usb", "wireplumber", "temperature", "network", "custom/power"],
+
+    // Tap to switch. Duplicates the touch gesture, and is the fallback if the
+    // gesture daemon is not running.
+    "sway/workspaces": {
+        "format": "{icon}",
+        "format-icons": { "1": "DJ", "2": "DESK", "default": "{name}" },
+        "disable-scroll": true,
+        "all-outputs": true
+    },
+
+    "custom/term": {
+        "format": "TERM",
+        "tooltip": false,
+        "on-click": "$HOME/.local/bin/bitedj-screen desktop"
+    },
+
+    // The box has no keyboard; this is how anything gets typed.
+    "custom/osk": {
+        "format": "KBD",
+        "tooltip": false,
+        "on-click": "$HOME/.local/bin/bitedj-osk"
+    },
+
+    "custom/files": {
+        "format": "FILES",
+        "tooltip": false,
+        "on-click": "pcmanfm"
+    },
+
+    "custom/settings": {
+        "format": "CONF",
+        "tooltip": false,
+        "on-click": "foot -- sudo raspi-config"
+    },
 
     // Mounted removable media. The library is drive-first, so "is my stick
     // actually mounted" is the single most useful thing on this bar.
+    // Absolute path: waybar's exec is resolved before any shell expansion we
+    // can rely on, so install-runtime.sh rewrites this for the target user.
     "custom/usb": {
         "exec": "/home/flx4/.local/bin/waybar-usb",
         "return-type": "json",
         "interval": 3,
         "on-click": "udiskie-umount --detach --all"
+    },
+
+    // Always confirms before acting -- a stray tap must not end a set.
+    "custom/power": {
+        "format": "PWR",
+        "tooltip": false,
+        "on-click": "$HOME/.local/bin/bitedj-power menu"
     },
 
     "clock": {
@@ -31,11 +85,6 @@
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     },
 
-    "cpu": {
-        "format": "cpu {usage}%",
-        "interval": 3
-    },
-
     // The Pi 4 throttles hard without a heatsink, and throttling means audio
     // dropouts, so this is a warning light rather than a curiosity.
     "temperature": {
@@ -43,11 +92,6 @@
         "critical-threshold": 75,
         "format": "{temperatureC}°C",
         "format-critical": "{temperatureC}°C !",
-        "interval": 5
-    },
-
-    "memory": {
-        "format": "mem {percentage}%",
         "interval": 5
     },
 

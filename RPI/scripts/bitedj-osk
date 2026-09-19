@@ -1,0 +1,24 @@
+#!/bin/bash
+# Toggle the on-screen keyboard.
+#
+# The appliance has no keyboard, so anything that needs typing -- a terminal, a
+# WiFi password, a filename -- needs this. wvkbd is a layer-shell keyboard, so
+# it overlays whatever is on screen without resizing it.
+#
+# Start/stop rather than SIGUSR1/SIGUSR2 hide/show: it is one code path instead
+# of two plus a state file, and startup is fast enough not to notice.
+
+set -euo pipefail
+
+# 480px tall screen: a full-height keyboard would leave nothing to type into.
+HEIGHT=${BITEDJ_OSK_HEIGHT:-190}
+
+if pgrep -x wvkbd-mobintl >/dev/null 2>&1; then
+    pkill -x wvkbd-mobintl
+else
+    # Colours match the waybar theme so it does not look bolted on.
+    wvkbd-mobintl -L "$HEIGHT" --fn "DejaVu Sans 11" \
+        --bg 0b0b0dee --fg 1a1a1f --fg-sp 2a2a30 \
+        --press 4e4e57 --press-sp 5a5a66 \
+        --text c8c8cc --text-sp ffffff >/dev/null 2>&1 &
+fi

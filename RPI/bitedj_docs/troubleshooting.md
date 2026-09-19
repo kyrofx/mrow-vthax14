@@ -118,6 +118,29 @@ bar block is launched on sway's own schedule and races the line above.
 
 ---
 
+## Cannot get out of BiteDJ / gestures do nothing
+
+Three fingers swiped down should give you a desktop. If it does not:
+
+```bash
+pgrep -af lisgd                # is the gesture daemon running?
+~/.local/bin/bitedj-gestures   # run in foreground; prints why it failed and
+                               # lists every candidate input device
+id -nG | grep input            # lisgd reads the evdev node directly
+```
+
+Fallbacks that always work: the `DJ`/`DESK` buttons on waybar, `Super+Escape` with a
+USB keyboard, or over SSH:
+
+```bash
+export SWAYSOCK=$(ls /run/user/1000/sway-ipc.*.sock | head -1)
+swaymsg workspace number 2
+```
+
+Full detail in [desktop-access.md](desktop-access.md).
+
+---
+
 ## No audio from the controller
 
 Three independent causes, all of which produce silence with no error naming them. In
@@ -197,6 +220,8 @@ distinguishes an OOM from a real compile error so it will not loop on the latter
 
 The session is configured so you are never locked out:
 
+0. Three fingers swiped down gets you a desktop and a terminal on the box itself —
+   try that before reaching for SSH. See [desktop-access.md](desktop-access.md).
 1. `ssh flx4` — always works, session config is VT-1-only.
 2. `systemctl --user show-environment` and `tail ~/.local/share/sway.log` to see how far
    the chain got.

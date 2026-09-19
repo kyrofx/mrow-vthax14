@@ -1,0 +1,51 @@
+#!/bin/bash
+# Touchscreen gestures for the appliance.
+#
+# Three fingers swiped DOWN  -> the debug desktop
+# Three fingers swiped UP    -> back to BiteDJ
+#
+# Why lisgd and not sway's own `bindgesture`: sway binds libinput *gesture*
+# events, which touchpads emit and touchscreens do not. Touchscreens emit raw
+# touch events, so something has to synthesise gestures from them. That is
+# exactly what lisgd does.
+#
+# Why three fingers: lisgd reads the device without grabbing it, so the touches
+# still reach BiteDJ underneath. A one- or two-finger swipe would land on a
+# fader or a waveform. Three simultaneous fingers is not a gesture the DJ UI
+# uses, so it is unambiguous.
+
+set -euo pipefail
+
+# Resolve the touchscreen by name rather than hardcoding an event number --
+# event numbering depends on probe order and is not stable across boots.
+find_touchscreen() {
+    if [ -n "${BITEDJ_TOUCH_DEV:-}" ]; then
+        echo "$BITEDJ_TOUCH_DEV"; return 0
+    fi
+    local dev name
+    for dev in /dev/input/event*; do
+        name=$(cat "/sys/class/input/$(basename "$dev")/device/name" 2>/dev/null) || continue
+        case "$name" in
+            *ft5x06*|*[Tt]ouchscreen*|*[Tt]ouch\ [Ss]creen*)
+                echo "$dev"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
+DEV=$(find_touchscreen) || {
+    echo "bitedj-gestures: no touchscreen found; set BITEDJ_TOUCH_DEV to override." >&2
+    echo "Candidates:" >&2
+    for d in /dev/input/event*; do
+        echo "  $d  $(cat "/sys/class/input/$(basename "$d")/device/name" 2>/dev/null)" >&2
+    done
+    exit 1
+}
+
+SCREEN="$HOME/.local/bin/bitedj-screen"
+
+# -t 100: distance in pixels before a swipe registers. The panel is only 480px
+# tall, so the 125px default is over a quarter of the screen and feels sticky.
+exec lisgd -d "$DEV" -t 100 \
+    -g "3,UD,*,*,R,$SCREEN desktop" \
+    -g "3,DU,*,*,R,$SCREEN dj"

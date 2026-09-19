@@ -17,10 +17,17 @@ sudo apt install sway swayidle waybar udiskie qt6-wayland \
 Versions in use: sway 1.10.1, waybar 0.12.0, udiskie 2.5.7, qt6-wayland 6.8.2,
 xdg-desktop-portal-wlr 0.7.1, Mesa 26.2.2.
 
+Plus `lisgd`, `wvkbd`, `foot` and `pcmanfm` for the escape hatch — see
+[desktop-access.md](desktop-access.md).
+
 `qt6-wayland` is **not optional** — without it Qt has no `wayland` platform plugin and
 BiteDJ aborts on every launch. `swaynag` is part of the `sway` package, not separate.
 `grim` and `mesa-utils` are diagnostics (screenshots, `eglinfo`) and can be dropped from
 a shipping image.
+
+The appliance user must be in the **`input`** group as well as `audio`: `lisgd` reads
+the touchscreen's evdev node directly, and without it the touch gestures silently never
+fire.
 
 ## Real-time audio
 

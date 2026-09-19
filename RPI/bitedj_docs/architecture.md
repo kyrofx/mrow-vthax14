@@ -47,6 +47,7 @@ firmware
                       ├─ waybar
                       ├─ udiskie --automount
                       ├─ polkit-mate-authentication-agent-1
+                      ├─ ~/.local/bin/bitedj-gestures        # lisgd: touch escape hatch
                       └─ ~/.local/bin/bitedj-session
                           └─ /usr/local/bin/mixxx --fullScreen
 ```
@@ -78,6 +79,26 @@ Note that waybar is currently **invisible in normal use** — BiteDJ is fullscre
 pi-gen recipe and to be there if BiteDJ is ever run non-fullscreen. To make it visible
 you would need to move it to the `overlay` layer, at a cost of 28 px off a 480 px screen.
 
+## Two workspaces
+
+The session is split so the appliance is not a trap:
+
+| Workspace | Holds | Visible |
+|---|---|---|
+| 1 | BiteDJ, fullscreen | On boot, and on stage |
+| 2 | waybar, terminal, on-screen keyboard, file manager | On demand |
+
+A three-finger swipe moves between them. This matters more than it sounds: the box
+has no keyboard, so without it a misconfigured appliance can only be fixed over SSH —
+and at a venue there may be no network either.
+
+Crucially, **switching does not interrupt playback**. The audio engine is independent
+of whether its window is visible, so the desktop is reachable mid-set.
+
+waybar deliberately stays *behind* fullscreen BiteDJ on workspace 1 rather than
+floating above it, because at 800×480 an overlay bar would cover BiteDJ's own tab
+strip. See [desktop-access.md](desktop-access.md).
+
 ## Components
 
 | Component | Role | Why this one |
@@ -89,6 +110,8 @@ you would need to move it to the `overlay` layer, at a cost of 28 px off a 480 p
 | `polkit` + mate agent | Authorization | Power-off and eject need an agent that can answer |
 | `pipewire` + `wireplumber` | Audio for everything *except* the DJ controller | Already the OS default |
 | `bitedj-session` | Supervisor | Restarts BiteDJ on crash, with a give-up threshold |
+| `lisgd` | Touch gestures | sway's `bindgesture` only sees touchpad gesture events, not touchscreen ones |
+| `wvkbd` | On-screen keyboard | The box has no keyboard; layer-shell so it overlays without resizing |
 
 ## Removable media
 

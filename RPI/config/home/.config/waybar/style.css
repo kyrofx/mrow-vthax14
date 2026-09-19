@@ -16,11 +16,48 @@ window#waybar {
 #custom-usb,
 #clock,
 #wireplumber,
-#cpu,
 #temperature,
-#memory,
 #network {
     padding: 0 6px;
+}
+
+/* Launchers and the workspace switcher are tapped, not read, so they get
+   wider hit areas and a visible edge -- on a touchscreen an unbounded label
+   gives you nothing to aim at. */
+#workspaces button,
+#custom-term,
+#custom-osk,
+#custom-files,
+#custom-settings,
+#custom-power {
+    padding: 0 10px;
+    margin: 3px 1px;
+    background: #1a1a1f;
+    color: #c8c8cc;
+    border: 1px solid #2a2a30;
+    font-size: 12px;
+}
+
+#workspaces button.focused,
+#workspaces button.visible {
+    background: #4e4e57;
+    color: #ffffff;
+}
+
+#workspaces button:hover,
+#custom-term:hover,
+#custom-osk:hover,
+#custom-files:hover,
+#custom-settings:hover,
+#custom-power:hover {
+    background: #2f2f37;
+}
+
+/* Power is the one control that can end a set. Mark it, but do not make it
+   the brightest thing on the bar -- it still confirms before acting. */
+#custom-power {
+    color: #ff8f88;
+    border-color: #4a2a28;
 }
 
 #clock {
@@ -29,13 +66,8 @@ window#waybar {
 }
 
 /* A mounted drive is the good state, so it is the one thing that gets colour. */
-#custom-usb.mounted {
-    color: #4ec9a0;
-}
-
-#custom-usb.empty {
-    color: #6a6a70;
-}
+#custom-usb.mounted { color: #4ec9a0; }
+#custom-usb.empty   { color: #6a6a70; }
 
 #temperature.critical {
     color: #ff5f56;

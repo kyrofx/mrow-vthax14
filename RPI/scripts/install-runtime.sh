@@ -40,7 +40,14 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk \
     pipewire pipewire-pulse wireplumber \
     policykit-1 mate-polkit \
-    grim mesa-utils
+    foot pcmanfm \
+    lisgd wvkbd \
+    grim mesa-utils evtest evemu-tools
+
+# lisgd + wvkbd are what make the box recoverable without a keyboard: lisgd
+# turns touchscreen swipes into commands (sway's own bindgesture only sees
+# libinput *gesture* events, which touchscreens do not emit), and wvkbd is the
+# on-screen keyboard. Without them the appliance has no escape hatch.
 
 # ------------------------------------------------------------ audio / RT -----
 say "Real-time audio limits"
@@ -101,9 +108,16 @@ sed -i "s#/home/flx4/#$USER_HOME/#g" "$USER_HOME/.config/waybar/config.jsonc"
 install -m 644 "$CONFIG/home/.config/wireplumber/wireplumber.conf.d/50-bitedj-reserve-controller.conf" \
     "$USER_HOME/.config/wireplumber/wireplumber.conf.d/50-bitedj-reserve-controller.conf"
 
-for s in bitedj-session waybar-usb add-wifi; do
+for s in bitedj-session waybar-usb add-wifi \
+         bitedj-screen bitedj-gestures bitedj-osk bitedj-power; do
     install -m 755 "$HERE/$s" "$USER_HOME/.local/bin/$s"
 done
+
+# lisgd reads the touchscreen's evdev node directly.
+if ! id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx input; then
+    note "Adding $USER_NAME to the 'input' group (needed for touch gestures)"
+    sudo usermod -aG input "$USER_NAME"
+fi
 
 # --------------------------------------------------------------- autologin ---
 say "Console autologin -> sway"
@@ -138,6 +152,15 @@ Not done automatically, because both are choices rather than defaults:
           | sudo tee /etc/sudoers.d/010-bitedj-nopasswd >/dev/null
         sudo chmod 440 /etc/sudoers.d/010-bitedj-nopasswd
         sudo visudo -c        # ALWAYS validate; a bad file locks you out of sudo
+
+Getting out of the appliance once it boots:
+
+  * Three fingers swiped DOWN  -> the debug desktop (terminal, on-screen
+    keyboard, file manager, raspi-config).
+  * Three fingers swiped UP    -> back to BiteDJ.
+  * With a keyboard: Super+Escape toggles, Super+Return opens a terminal.
+
+  Switching does not interrupt playback. See ../bitedj_docs/desktop-access.md
 
 Verify after reboot:  see ../bitedj_docs/runtime.md ("Verifying a boot")
 EOF

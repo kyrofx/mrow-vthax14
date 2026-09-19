@@ -1,0 +1,44 @@
+#!/bin/bash
+# Power menu for a box with no keyboard.
+#
+# Always confirms. Pulling power on a running appliance risks the USB library
+# and the config, and an accidental shutdown mid-set is unrecoverable, so a
+# single stray tap must never be enough.
+#
+# The polkit rules (/etc/polkit-1/rules.d/50-bitedj.rules) let an active local
+# session in the `audio` group do this without an auth prompt -- which matters,
+# because there is no keyboard to answer one with.
+
+set -euo pipefail
+
+action=${1:-menu}
+
+confirm() {
+    swaynag -t warning \
+        -m "$1" \
+        -B "Yes, $2" "$3" \
+        -B "Cancel" "true" \
+        -s "Cancel"
+}
+
+case "$action" in
+    off)
+        confirm "Shut down the appliance? Stop playback first." "shut down" "systemctl poweroff"
+        ;;
+    reboot)
+        confirm "Reboot the appliance? Stop playback first." "reboot" "systemctl reboot"
+        ;;
+    restart-dj)
+        # bitedj-session supervises BiteDJ and restarts it, so killing it is
+        # enough to get a clean restart without touching the session.
+        confirm "Restart BiteDJ? Audio will stop." "restart" "pkill -x mixxx"
+        ;;
+    menu|*)
+        swaynag -t warning -m "Power" \
+            -B "Restart BiteDJ" "$0 restart-dj" \
+            -B "Reboot" "$0 reboot" \
+            -B "Shut down" "$0 off" \
+            -B "Cancel" "true" \
+            -s "Cancel"
+        ;;
+esac

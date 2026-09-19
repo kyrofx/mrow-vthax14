@@ -37,6 +37,15 @@ sudo systemctl reboot
 short of two things, because both are choices rather than defaults: the **audio output
 device** (see [`bitedj_docs/audio.md`](bitedj_docs/audio.md)) and **passwordless sudo**.
 
+## Getting out of the appliance
+
+BiteDJ boots fullscreen and owns the screen. **Three fingers swiped down** gives you a
+desktop with a terminal, on-screen keyboard, file manager and `raspi-config`; three
+fingers up returns to BiteDJ. Switching does not interrupt playback.
+
+This needs no changes to the BiteDJ fork — it is sway config, waybar, and two small
+daemons. See [`bitedj_docs/desktop-access.md`](bitedj_docs/desktop-access.md).
+
 ## Scripts
 
 | Script | Runs | Purpose |
@@ -44,6 +53,10 @@ device** (see [`bitedj_docs/audio.md`](bitedj_docs/audio.md)) and **passwordless
 | `build-bitedj.sh` | directly | Builds BiteDJ with OOM recovery — retries on an OOM kill, drops to `-j1`, and stops on a genuine compile error rather than looping |
 | `install-runtime.sh` | directly | Applies everything in `config/`, installs packages, enables units |
 | `bitedj-session` | from sway | Supervises BiteDJ: restarts it on crash, gives up after 5 fast failures rather than spinning |
+| `bitedj-screen` | gesture / key | Moves between the appliance and the debug desktop |
+| `bitedj-gestures` | from sway | Runs `lisgd` — turns three-finger touchscreen swipes into workspace switches |
+| `bitedj-osk` | button / key | Toggles the `wvkbd` on-screen keyboard |
+| `bitedj-power` | button | Power menu; always confirms, so a stray tap cannot end a set |
 | `waybar-usb` | from waybar | Custom module showing which removable drives are mounted |
 | `add-wifi` | manually | Stores a WiFi network **without connecting to it**, for venues you have not visited yet |
 

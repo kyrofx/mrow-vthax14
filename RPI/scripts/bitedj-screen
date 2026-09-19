@@ -1,0 +1,74 @@
+#!/bin/bash
+# Move between the appliance and the debug desktop.
+#
+# Workspace 1 is BiteDJ, fullscreen, and is what the box boots into. Workspace 2
+# is an ordinary desktop -- waybar, a terminal, an on-screen keyboard -- for
+# fixing things without tearing the appliance down.
+#
+# Switching workspaces does NOT interrupt playback. The audio engine runs
+# independently of whether its window is visible, so you can drop to the desktop
+# mid-set and the music keeps going.
+#
+# Usage: bitedj-screen desktop | dj | toggle
+
+set -euo pipefail
+
+WS_DJ=1
+WS_DESK=2
+TERMINAL=${TERMINAL:-foot}
+
+current_ws() {
+    swaymsg -t get_workspaces | python3 -c \
+        'import json,sys; print(next((w["num"] for w in json.load(sys.stdin) if w["focused"]), 0))'
+}
+
+# Count real windows on a workspace. waybar and the keyboard are layer-shell
+# surfaces, not windows, so they are correctly not counted here.
+windows_on() {
+    swaymsg -t get_tree | python3 -c '
+import json, sys
+want = int(sys.argv[1])
+tree = json.load(sys.stdin)
+
+def walk(node, found):
+    if node.get("type") == "workspace" and node.get("num") == want:
+        found.append(node)
+    for child in node.get("nodes", []) + node.get("floating_nodes", []):
+        walk(child, found)
+
+def count(node):
+    n = 1 if node.get("app_id") or node.get("window_props") else 0
+    for child in node.get("nodes", []) + node.get("floating_nodes", []):
+        n += count(child)
+    return n
+
+found = []
+walk(tree, found)
+print(sum(count(w) for w in found))
+' "$1"
+}
+
+show_desktop() {
+    swaymsg workspace number "$WS_DESK" >/dev/null
+    # An empty workspace showing nothing but a bar is a dead end on a
+    # touch-only device, so guarantee there is always something to work in.
+    if [ "$(windows_on "$WS_DESK")" -eq 0 ]; then
+        swaymsg exec "$TERMINAL" >/dev/null
+    fi
+}
+
+show_dj() {
+    swaymsg workspace number "$WS_DJ" >/dev/null
+}
+
+case "${1:-toggle}" in
+    desktop) show_desktop ;;
+    dj)      show_dj ;;
+    toggle)
+        if [ "$(current_ws)" = "$WS_DJ" ]; then show_desktop; else show_dj; fi
+        ;;
+    *)
+        echo "usage: $(basename "$0") desktop|dj|toggle" >&2
+        exit 1
+        ;;
+esac

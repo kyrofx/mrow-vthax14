@@ -26,9 +26,12 @@ Built and running on boot, verified across four reboots on 2026-09-19.
    rather than a program: real-time audio, automount, polkit, autologin.
 4. **[audio.md](audio.md)** — getting sound out. The known-good device configuration,
    why PipeWire has to be kept off the controller, and Bluetooth.
-5. **[networking.md](networking.md)** — SSH access and staging WiFi networks for venues
+5. **[desktop-access.md](desktop-access.md)** — the escape hatch. How to get from the
+   fullscreen appliance to a real desktop, terminal and on-screen keyboard, with no
+   keyboard attached.
+6. **[networking.md](networking.md)** — SSH access and staging WiFi networks for venues
    you have not been to yet.
-6. **[troubleshooting.md](troubleshooting.md)** — every failure hit during bring-up, with
+7. **[troubleshooting.md](troubleshooting.md)** — every failure hit during bring-up, with
    the actual diagnosis. Start here when something breaks.
 
 ## The short version of what bites people
@@ -47,3 +50,6 @@ Built and running on boot, verified across four reboots on 2026-09-19.
   with no useful error. See [audio.md](audio.md#pipewire-contention).
 - **Steady, continuous audio underruns mean a bad channel layout, not a small buffer.**
   See [audio.md](audio.md#a-channel-assignment-the-device-cannot-satisfy).
+- **You are not locked into the fullscreen app.** Three fingers swiped down gets you a
+  desktop, terminal and on-screen keyboard, without interrupting playback. See
+  [desktop-access.md](desktop-access.md).

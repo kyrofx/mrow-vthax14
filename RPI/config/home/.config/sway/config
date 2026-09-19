@@ -20,18 +20,38 @@ output * bg #000000 solid_color
 focus_follows_mouse no
 seat * hide_cursor 3000
 
-### The appliance window. Borderless and filling the workspace below waybar;
-### $mod+f gives true fullscreen when the extra 28px matter.
+### Two workspaces, and the split is the whole escape-hatch design:
+###   1 = BiteDJ, fullscreen. What the box boots into and what it shows on stage.
+###   2 = an ordinary desktop -- waybar, terminal, on-screen keyboard -- for
+###       fixing things without tearing the appliance down.
+### Switching between them does NOT interrupt playback: the audio engine runs
+### independently of whether its window is visible.
+set $ws_dj 1
+set $ws_desk 2
+
 for_window [app_id="org.mixxx.Mixxx"] inhibit_idle open
-assign [app_id="org.mixxx.Mixxx"] workspace 1
+assign [app_id="org.mixxx.Mixxx"] workspace $ws_dj
 
-### Anything else that shows up (dialogs, the debug terminal) floats over it.
-for_window [app_id="foot"] floating enable, resize set 900 500, border pixel 2
+### Desktop apps tile normally on workspace 2. They are NOT floated: the old
+### rule sized the terminal 900x500 on an 800x480 panel, so it hung off the
+### screen with its edges unreachable on a touch-only device.
+for_window [app_id="foot"] border pixel 2
+### Real dialogs still float, or they get tiled into unusable slivers.
+for_window [window_role="dialog"] floating enable
+for_window [window_type="dialog"] floating enable
 
-### Debug escape hatch (CLAUDE.md): plug in a keyboard, $mod+Return for a
-### terminal over the UI. No other bindings, so a stray keypress cannot kill
-### the session mid-set.
-bindsym $mod+Return exec $term
+### Keyboard bindings. These duplicate the touch gestures rather than replacing
+### them -- the appliance normally has no keyboard, but when one is plugged in
+### for debugging it should not be harder to use than a finger.
+### Deliberately sparse, so a stray keypress cannot kill the session mid-set.
+bindsym $mod+Escape exec $HOME/.local/bin/bitedj-screen toggle
+bindsym $mod+1 workspace number $ws_dj
+bindsym $mod+2 exec $HOME/.local/bin/bitedj-screen desktop
+### $mod+Return goes via bitedj-screen so the terminal always lands on the
+### desktop workspace. Opened on workspace 1 it would be stacked behind
+### fullscreen BiteDJ, i.e. invisible, which looks like it failed to start.
+bindsym $mod+Return exec $HOME/.local/bin/bitedj-screen desktop
+bindsym $mod+k exec $HOME/.local/bin/bitedj-osk
 bindsym $mod+f fullscreen toggle
 bindsym $mod+b exec killall -SIGUSR1 waybar
 bindsym $mod+Shift+r reload
@@ -57,6 +77,12 @@ exec --no-startup-id udiskie --automount --notify --no-tray
 ### Polkit agent, so udiskie's mount/eject and the UI's power-off can
 ### authenticate instead of silently failing.
 exec --no-startup-id /usr/libexec/polkit-mate-authentication-agent-1
+
+### Touchscreen gestures: three fingers down for the desktop, three up for
+### BiteDJ. This is the only way back out of the appliance without a keyboard,
+### so if gestures are not working, see bitedj_docs/desktop-access.md before
+### assuming the box is locked.
+exec --no-startup-id $HOME/.local/bin/bitedj-gestures
 
 ### The appliance itself.
 exec --no-startup-id $HOME/.local/bin/bitedj-session
