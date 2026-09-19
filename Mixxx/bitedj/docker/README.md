@@ -23,6 +23,8 @@ Files:
   arguments are passed through to `cmake`.
 - `run-vnc.sh`: starts a virtual X display and a VNC server, then runs the
   built app.
+- `stage.sh`: stages a stripped install tree in `install/` for deploying to
+  the Pi.
 
 Commands run from the repo root unless marked _(inside)_.
 
@@ -70,36 +72,47 @@ open vnc://localhost:5901                    # note: port 5901
   OpenGL and has no audio device. The Devices page will be empty, so startup
   lands on Settings → Devices. Audio latency, touch, GPU performance and USB
   drive handling need testing on the device.
-- **Settings:** the app's `~/.bitedj` persists in the `settings-pi` /
+- **Settings:** the app's `~/.mixxx` persists in the `settings-pi` /
   `settings-ubuntu` volumes.
 - **Cleanup:** `docker compose down -v` removes all build trees, ccache and
   settings.
 
 ## Deploying to the Pi
 
-The `pi` build is a native arm64 build against the same Debian release as
-Raspberry Pi OS trixie, so the binary runs on the Pi as long as its shared
-libraries are installed there. It has no RPATH, and bundled libraries such as
-libdjinterop are linked statically, so everything it needs comes from system
-packages. It is not enough to copy just the binary:
+This assumes Mixxx already runs on the Pi, so its shared libraries are
+installed; only the binary needs replacing. The `pi` build links against the
+same Debian release as Raspberry Pi OS trixie. The build tree lives in a
+Docker volume, so strip a copy into the host checkout (`install/` is
+gitignored) and copy it over (replace `pi@raspberrypi.local` with your
+device):
 
-1. **Copy `res/` too:** the binary needs skins, controller mappings and other
-   resources from it. Run `mixxx --resource-path /path/to/res/`.
-2. **Install runtime libraries:** the non-`-dev` counterparts of the packages
-   in `tools/debian_buildenv.sh`. On the Pi, `ldd ./mixxx | grep "not found"`
-   lists what's missing.
-3. **Install Qt plugins:** `ldd` does not show them. The app needs
-   `libqt6sql6-sqlite` and `qt6-svg-plugins`, and a platform plugin. The trixie
-   desktop runs Wayland (labwc), so install `qt6-wayland` or run with
-   `QT_QPA_PLATFORM=xcb` (XWayland).
-4. **Allow real-time priority:** add these lines to a file in
-   `/etc/security/limits.d/`, and put the user in the `audio` group:
-   ```
-   @audio - rtprio 95
-   @audio - memlock unlimited
-   ```
-5. **Strip the binary:** the RelWithDebInfo build is ~490 MB. `strip` a copy
-   before deploying.
+Run both from the repo root on the host, not inside the container. `install/`
+is bind-mounted, so the stripped binary lands in the host checkout:
 
-A `.deb` built with the existing CPack packaging (`packaging/`) would take care
-of steps 1–3.
+```sh
+docker compose run --rm pi bash -c 'mkdir -p install && strip -o install/mixxx build/mixxx'
+scp install/mixxx pi@raspberrypi.local:bitedj/bin/mixxx
+```
+
+The binary loads skins and mappings from `../share/mixxx` relative to itself,
+so where it goes depends on how Mixxx is installed on the Pi
+(`readlink -f $(which mixxx)` shows the path):
+
+- **Built from this repo** (e.g. `/usr/local/bin/mixxx` next to
+  `/usr/local/share/mixxx`): replace that binary; it uses the resources
+  installed beside it.
+- **Debian's `mixxx` package** (`/usr/bin/mixxx`): don't overwrite it. apt
+  owns it, and `/usr/share/mixxx` holds upstream Mixxx's resources without
+  the BiteDJ skin. Put the binary elsewhere (e.g. `~/bitedj/bin/`) and pass
+  `--resource-path` pointing at this repo's `res/`.
+
+The binary alone is not enough when:
+
+- **`res/` changed:** skin and mapping changes live in `res/`, not in the
+  binary. `docker/stage.sh` stages a full install tree
+  (`install/bin/mixxx` plus `install/share/mixxx/`); sync
+  `install/share/mixxx/` to the Pi as well.
+- **A new library dependency was added:** on the Pi,
+  `ldd ~/bitedj/bin/mixxx | grep "not found"` should print nothing.
+  `docker/stage.sh` also writes `install/apt-packages.txt` listing the
+  packages the binary needs.

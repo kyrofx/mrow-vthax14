@@ -48,7 +48,7 @@ services:
     volumes:
       - .:/src
       - build-pi:/src/build
-      - settings-pi:/home/builder/.bitedj
+      - settings-pi:/home/builder/.mixxx
 
   ubuntu:
     <<: *ubuntu
@@ -64,7 +64,7 @@ services:
     volumes:
       - .:/src
       - build-ubuntu:/src/build
-      - settings-ubuntu:/home/builder/.bitedj
+      - settings-ubuntu:/home/builder/.mixxx
 
 # Named volumes: faster than bind mounts on macOS, and survive restarts.
 # ccache is shared; its keys include the compiler and flags.

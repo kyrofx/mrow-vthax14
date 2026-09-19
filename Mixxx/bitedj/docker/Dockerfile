@@ -56,7 +56,7 @@ RUN (userdel --remove ubuntu 2>/dev/null || true) \
     && useradd --create-home --uid "${UID}" --shell /bin/bash builder \
     && echo 'builder ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/builder \
     && git config --system --add safe.directory '*' \
-    && mkdir -p /src/build /home/builder/.cache/ccache /home/builder/.bitedj \
+    && mkdir -p /src/build /home/builder/.cache/ccache /home/builder/.mixxx \
     && chown -R builder:builder /src /home/builder
 
 # CMake reads CFLAGS/CXXFLAGS on first configure.
