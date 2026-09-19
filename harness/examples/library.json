@@ -1,0 +1,8 @@
+[
+  {"id":"demo-1","title":"Warm Up","artist":"Demo","bpm":118,"genre":"house","path":"/music/warm-up.mp3"},
+  {"id":"demo-2","title":"Steady","artist":"Demo","bpm":122,"genre":"house","path":"/music/steady.mp3"},
+  {"id":"demo-3","title":"Lift","artist":"Demo","bpm":126,"genre":"house","path":"/music/lift.mp3"},
+  {"id":"demo-4","title":"Peak","artist":"Demo","bpm":130,"genre":"techno","path":"/music/peak.mp3"},
+  {"id":"demo-5","title":"Reset","artist":"Demo","bpm":100,"genre":"hip-hop","path":"/music/reset.mp3"},
+  {"id":"demo-6","title":"Double Time","artist":"Demo","bpm":174,"genre":"drum-and-bass","path":"/music/double-time.mp3"}
+]

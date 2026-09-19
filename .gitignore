@@ -25,3 +25,8 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Local DJ library, history, and feedback
+harness/data/
+.playwright-cli/
+output/playwright/
