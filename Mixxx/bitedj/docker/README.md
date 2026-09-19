@@ -74,10 +74,35 @@ open vnc://localhost:5901                    # note: port 5901
   drive handling need testing on the device.
 - **Settings:** the app's `~/.mixxx` persists in the `settings-pi` /
   `settings-ubuntu` volumes.
+- **The Assist tab:** the run services also start the MROW DJ harness inside
+  the container when this checkout sits in the MROW repository (it is mounted
+  at `/harness`), so the tab has something to talk to. Seed it with a few songs
+  to see suggestions:
+
+  ```sh
+  docker compose exec pi-run python3 - <<'PY'
+  import json, urllib.request
+  tracks = [{"id": f"demo:{i}", "title": t, "artist": a, "bpm": b, "genre": "house",
+             "camelot": "8A", "path": f"/tmp/{i}.mp3", "duration": 300}
+            for i, (t, a, b) in enumerate([("Night Drive", "Kolsch", 122.0),
+                                           ("Faded Lights", "Bicep", 124.0),
+                                           ("Pressure", "Objekt", 126.0)])]
+  urllib.request.urlopen(urllib.request.Request(
+      "http://127.0.0.1:8765/api/library/sync",
+      json.dumps({"scope": "demo", "complete": True, "tracks": tracks}).encode(),
+      {"Content-Type": "application/json"})).read()
+  PY
+  ```
 - **Cleanup:** `docker compose down -v` removes all build trees, ccache and
   settings.
 
 ## Deploying to the Pi
+
+Inside the MROW repository, `RPI/scripts/deploy.sh` does all of this and more —
+binary, resources, the DJ harness, the crowd buttons and their services —
+staging through the device's home directory, since ssh cannot write to
+`/usr/local`. The rest of this section is the manual equivalent, for a
+standalone checkout of the fork.
 
 This assumes Mixxx already runs on the Pi, so its shared libraries are
 installed; only the binary needs replacing. The `pi` build links against the

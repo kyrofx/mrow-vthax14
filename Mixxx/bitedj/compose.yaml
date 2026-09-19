@@ -49,6 +49,10 @@ services:
       - .:/src
       - build-pi:/src/build
       - settings-pi:/home/builder/.mixxx
+      # The DJ harness, when this checkout is inside the MROW repository, so
+      # the Assist tab has something to talk to. Optional: run-vnc.sh skips it
+      # when the path does not exist.
+      - ../../harness:/harness:ro
 
   ubuntu:
     <<: *ubuntu
@@ -65,6 +69,7 @@ services:
       - .:/src
       - build-ubuntu:/src/build
       - settings-ubuntu:/home/builder/.mixxx
+      - ../../harness:/harness:ro
 
 # Named volumes: faster than bind mounts on macOS, and survive restarts.
 # ccache is shared; its keys include the compiler and flags.

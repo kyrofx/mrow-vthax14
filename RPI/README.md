@@ -13,7 +13,9 @@ covered there in more depth, including why each choice was made.
 - `bitedj_docs/` — full documentation: architecture, build, runtime, audio,
   networking, troubleshooting.
 - `scripts/` — setup, build, and utility scripts. All are deployed to
-  `~/.local/bin/` on the Pi except the two that are run directly.
+  `~/.local/bin/` on the Pi except the three that are run directly:
+  `build-bitedj.sh` and `install-runtime.sh` on the Pi, and `deploy.sh` from a
+  workstation (see below).
 - `config/` — configuration files, laid out mirroring their real paths on the Pi, so
   `config/etc/...` goes to `/etc/...` and `config/home/...` goes to `~/...`.
 - `src/` — Raspberry Pi application and device code.
@@ -143,3 +145,46 @@ If BiteDJ does not react, confirm the port name in `buttons.toml` still matches
 the mapping's `<name>`: the fork pairs a device with a mapping by name, and
 hides MIDI devices that have none.
 
+## Deploying from a workstation
+
+Building on the Pi takes over two hours. `scripts/deploy.sh` builds in the
+project's Debian trixie arm64 container instead — the same release the
+appliance runs — and copies the result over ssh:
+
+```sh
+RPI/scripts/deploy.sh                 # build and deploy everything to flx4
+RPI/scripts/deploy.sh --dry-run       # print what it would do, change nothing
+RPI/scripts/deploy.sh --no-build      # deploy what is already built
+RPI/scripts/deploy.sh --only harness  # mixxx | harness | buttons | all
+RPI/scripts/deploy.sh --host bitedj   # another device (ssh alias or user@host)
+RPI/scripts/deploy.sh --restart       # restart BiteDJ afterwards
+```
+
+| What | Where it lands | Needs root |
+| --- | --- | --- |
+| Binary | `/usr/local/bin/mixxx` (and the `bitedj` symlink) | yes |
+| Resources (skin, mappings, effects) | `/usr/local/share/mixxx` | yes |
+| DJ harness | `~/.local/share/mrow/harness` | no |
+| Crowd buttons | `~/.local/share/mrow/buttons` | no |
+| Services, session script, `buttons.toml` | `~/.config`, `~/.local/bin` | no |
+
+**ssh cannot write to `/usr/local`**, so everything is copied to
+`~/.cache/mrow-deploy` on the device first and moved into place there with
+`sudo` — which prompts for a password unless the device has passwordless sudo.
+The new binary is renamed over the old one, and a rename is atomic, so a
+running BiteDJ keeps the copy it started from and nothing is disturbed
+mid-set.
+
+`--user` installs the binary and resources under `~/.local` instead, needs no
+sudo at all, and points `bitedj-session` at that binary. The app looks for its
+resources at `../share/mixxx` relative to itself, so both layouts work.
+
+Deploying does **not** restart BiteDJ: an update should not cut a set short.
+The new build starts at the next launch, or restart it with
+`ssh flx4 'pkill -x mixxx'` (`bitedj-session` relaunches it), or pass
+`--restart`.
+
+Local wiring is never clobbered: `buttons.toml` and `~/.config/mrow/harness.env`
+are only created when missing. Afterwards the script prints the installed
+version, checks `ldd` for missing libraries, validates the button config, and
+restarts the two user services.
