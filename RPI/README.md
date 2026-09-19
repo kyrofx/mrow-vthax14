@@ -23,6 +23,20 @@ covered there in more depth, including why each choice was made.
     MIDI port BiteDJ reads; see below.
 - `tests/` — automated tests for Raspberry Pi code.
 
+## Building
+
+Two routes, and the right one depends on the change:
+
+| | Cold build | Incremental |
+|---|---|---|
+| On the Pi (`scripts/build-bitedj.sh`) | 2h20m | **~50s** |
+| In Docker on an Apple Silicon Mac | minutes | minutes |
+
+A one-line change is faster to iterate on over ssh than to cross-compile. A first
+build, a clean rebuild, or a change to a widely-included header is not. See
+[`bitedj_docs/cross-compile.md`](bitedj_docs/cross-compile.md) for the Mac setup and
+[`scripts/deploy.sh`](scripts/deploy.sh) for shipping the result to the device.
+
 ## Getting a box running
 
 ```bash

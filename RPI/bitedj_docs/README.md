@@ -31,9 +31,11 @@ Built and running on boot, verified across four reboots on 2026-09-19.
    keyboard attached.
 6. **[networking.md](networking.md)** — SSH access and staging WiFi networks for venues
    you have not been to yet.
-7. **[fork-patches.md](fork-patches.md)** — the local changes carried on top of the
+7. **[cross-compile.md](cross-compile.md)** — building in Docker on a Mac instead of
+   on the Pi, and deploying the result over ssh.
+8. **[fork-patches.md](fork-patches.md)** — the local changes carried on top of the
    BiteDJ fork, and why. Read before merging upstream.
-8. **[troubleshooting.md](troubleshooting.md)** — every failure hit during bring-up, with
+9. **[troubleshooting.md](troubleshooting.md)** — every failure hit during bring-up, with
    the actual diagnosis. Start here when something breaks.
 
 ## The short version of what bites people
@@ -57,4 +59,6 @@ Built and running on boot, verified across four reboots on 2026-09-19.
   [desktop-access.md](desktop-access.md).
 - **The fork is patched.** One change, to show the PipeWire device in the audio
   picker. [fork-patches.md](fork-patches.md) says why and how to re-apply it.
-- **Incremental builds take ~50 seconds**, not 2h20m. Only the first build is slow.
+- **Incremental builds take ~50 seconds**, not 2h20m. Only the first build is slow —
+  which is worth weighing before reaching for the cross-compile setup in
+  [cross-compile.md](cross-compile.md).
