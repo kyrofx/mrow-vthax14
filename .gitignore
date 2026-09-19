@@ -30,3 +30,9 @@ dist/
 harness/data/
 .playwright-cli/
 output/playwright/
+
+# Local-only working files
+# floorplanscrapes is a 339 MB scrape working directory, not project source.
+floorplanscrapes/
+# CLAUDE.md is local agent context; the real documentation is in bitedj_docs/.
+CLAUDE.md
