@@ -15,6 +15,19 @@
 
 namespace {
 const QString kGroup = QStringLiteral("[AudioDevices]");
+// PortAudio exposes the PipeWire bridge (pipewire-alsa) as a logical ALSA PCM
+// simply named "pipewire": it does not match the "(hw:X,Y)" pattern, so
+// SoundDevicePortAudio leaves alsaHwDevice empty and keeps the whole name.
+//
+// It is the appliance's only route to system audio, and therefore the only way
+// to reach a Bluetooth speaker. Everything else with an empty alsaHwDevice
+// (default, pulse, dmix, surround aliases) stays hidden.
+const QString kSystemAudioPcmName = QStringLiteral("pipewire");
+// The PipeWire PCM advertises 64 output channels. buildOptions() emits one
+// option per stereo pair, so taken at face value it adds 32 entries to every
+// bus's cycle order -- unusable on a touchscreen. It is a stereo sink in
+// practice.
+constexpr int kSystemAudioPcmChannels = 2;
 const QString kAppGroup = QStringLiteral("[App]");
 const QString kSoundManagerGroup = QStringLiteral("[SoundManager]");
 constexpr int kFallbackSampleRate = 48000;
@@ -699,13 +712,25 @@ void AudioDeviceSettings::refreshDeviceList() {
         // The appliance UI only supports direct ALSA hardware devices. Hide
         // logical PCMs such as default, pulse, dmix, and surround aliases;
         // SoundDevicePortAudio leaves alsaHwDevice empty for all of them.
+        //
+        // The PipeWire PCM is the one exception. Routing Booth to it while
+        // Master and Headphones stay on the controller is how you play the
+        // room over a Bluetooth speaker and still beatmatch on the deck's own
+        // cue -- the Rekordbox "booth out" arrangement. There is no second
+        // piece of hardware on this box to do that job.
+        const bool isSystemAudio =
+                pDevice->getDeviceId().name == kSystemAudioPcmName;
         if (pDevice->getHostAPI() == MIXXX_PORTAUDIO_ALSA_STRING &&
-                pDevice->getDeviceId().alsaHwDevice.isEmpty()) {
+                pDevice->getDeviceId().alsaHwDevice.isEmpty() &&
+                !isSystemAudio) {
             continue;
         }
-        const int channels = static_cast<int>(pDevice->getNumOutputChannels());
+        int channels = static_cast<int>(pDevice->getNumOutputChannels());
         if (channels < 2) {
             continue; // need at least stereo for a bus
+        }
+        if (isSystemAudio) {
+            channels = kSystemAudioPcmChannels;
         }
         m_deviceNames.append(pDevice->getDisplayName());
         m_deviceIds.append(pDevice->getDeviceId());

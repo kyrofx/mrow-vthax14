@@ -31,7 +31,9 @@ Built and running on boot, verified across four reboots on 2026-09-19.
    keyboard attached.
 6. **[networking.md](networking.md)** — SSH access and staging WiFi networks for venues
    you have not been to yet.
-7. **[troubleshooting.md](troubleshooting.md)** — every failure hit during bring-up, with
+7. **[fork-patches.md](fork-patches.md)** — the local changes carried on top of the
+   BiteDJ fork, and why. Read before merging upstream.
+8. **[troubleshooting.md](troubleshooting.md)** — every failure hit during bring-up, with
    the actual diagnosis. Start here when something breaks.
 
 ## The short version of what bites people
@@ -53,3 +55,6 @@ Built and running on boot, verified across four reboots on 2026-09-19.
 - **You are not locked into the fullscreen app.** Three fingers swiped down gets you a
   desktop, terminal and on-screen keyboard, without interrupting playback. See
   [desktop-access.md](desktop-access.md).
+- **The fork is patched.** One change, to show the PipeWire device in the audio
+  picker. [fork-patches.md](fork-patches.md) says why and how to re-apply it.
+- **Incremental builds take ~50 seconds**, not 2h20m. Only the first build is slow.

@@ -41,6 +41,18 @@ sudo systemctl reboot
 short of two things, because both are choices rather than defaults: the **audio output
 device** (see [`bitedj_docs/audio.md`](bitedj_docs/audio.md)) and **passwordless sudo**.
 
+## The fork is patched
+
+One local change on top of `TeamDeckshark/bitedj`, in the vendored copy at
+`Mixxx/bitedj/`: the audio device picker hides logical ALSA PCMs, which also hid
+`pipewire` — the appliance's only route to a Bluetooth speaker. See
+[`bitedj_docs/fork-patches.md`](bitedj_docs/fork-patches.md) before merging upstream.
+
+That enables the Rekordbox-style arrangement: **Master and Headphones on the
+controller, Booth to a Bluetooth speaker**, so the room hears the music while you
+still beatmatch on the deck's own cue. See
+[`bitedj_docs/audio.md`](bitedj_docs/audio.md).
+
 ## Getting out of the appliance
 
 BiteDJ boots fullscreen and owns the screen. **Three fingers swiped down** gives you a

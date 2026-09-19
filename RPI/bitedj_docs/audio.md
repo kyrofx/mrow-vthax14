@@ -214,20 +214,67 @@ explicitly, not `default`, so the hardware path is untouched.
 To use a Bluetooth speaker, set BiteDJ's output device to `pipewire` (or
 `default`) in SETTINGS > AUDIO.
 
-### Why you should not perform on it
+### Playing the room over Bluetooth while the deck keeps its own master and cue
 
-A2DP latency is **100-300ms**. You would hear the beat up to a third of a second
-after touching the jog wheel, so beatmatching and cueing are impossible. It is
-useful for casual playback, for checking a track, or for proving audio flows at
-all.
+This is the Rekordbox arrangement: the controller stays the real output, and a
+second output feeds the room. **Mixxx does this natively — no engine changes.**
 
-It also costs you the headphone cue. Routing to a PipeWire sink means giving up
-`hw:3,0` and its 4-channel split (Master 1-2, Headphones 3-4) for a stereo sink.
+The appliance UI has three buses, each independently assignable to a device and
+channel pair:
 
-Mixxx can drive two devices at once — Master to `pipewire`, Headphones to
-`hw:3,0` — but they are separate clock domains (the Bluetooth clock and the
-controller's USB clock), which drift apart and produce xruns over a set. For
-performance, use the controller's master out into a wired speaker.
+| Bus | Device | Channels | Carries |
+|---|---|---|---|
+| Master | DDJ-FLX4 | 1–2 | The deck's own output |
+| Headphones | DDJ-FLX4 | 3–4 | Cue — **beatmatch here** |
+| **Booth** | **pipewire** | 1–2 | The same program mix, to the Bluetooth speaker |
+
+Booth is the master mix with its own gain, and the appliance skin already has a
+Booth knob on the **LEVELS** tab, so the speaker gets independent volume.
+
+Bluetooth's 100–300ms only lands on the Booth path. Master and Headphones stay on
+the controller's own clock, so **cueing and beatmatching are unaffected** — you
+monitor on headphones exactly as before, and the room hears the delayed feed.
+That delay is inaudible to the room because there is nothing to compare it to.
+
+Set it up in **SETTINGS › AUDIO**: cycle the Booth bus until it reads `pipewire`,
+then Apply. Two prerequisites:
+
+1. **`pipewire-alsa` must be installed**, or there is no `pipewire` device at all.
+2. **The fork must be patched** to show it in the picker — see
+   [fork-patches.md](fork-patches.md). Stock BiteDJ hides logical ALSA PCMs, so
+   `pipewire` will not appear.
+
+#### Clock drift
+
+Two devices means two clock domains: the controller's USB clock and PipeWire's.
+Mixxx handles this with `sync_buffers`, which the config already sets to `2`
+("Default (long delay)"), the most forgiving setting. The device carrying Master
+becomes the clock reference and everything else follows it, so the controller
+leads and the Bluetooth path absorbs the correction.
+
+If you hear periodic artefacts on the *speaker* over a long set, that is drift
+correction; it does not affect the controller's own outputs.
+
+#### The speaker follows PipeWire's default sink
+
+The `pipewire` device is not bound to a particular speaker — it follows whatever
+PipeWire's default sink is. `bitedj-bt pair` sets a newly connected speaker as
+default, and PipeWire moves existing streams to a new default sink, so Booth
+should follow without restarting BiteDJ. Confirm with `wpctl status`: the Booth
+stream should appear underneath the Bluetooth sink.
+
+If the speaker drops out, Booth falls back to whatever the default sink becomes
+(usually built-in audio). Master and Headphones are untouched either way.
+
+### Do not put Master on Bluetooth
+
+The arrangement above works because Bluetooth only carries Booth. Putting
+**Master** on the Bluetooth sink instead is a different thing and does not work:
+A2DP latency is 100-300ms, so you would hear the beat up to a third of a second
+after touching the jog wheel, and with the controller no longer carrying Master
+you lose the 4-channel split and the headphone cue with it.
+
+Use Booth for the room. Keep Master and Headphones on the controller.
 
 ## USB ports
 
