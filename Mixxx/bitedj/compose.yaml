@@ -1,0 +1,76 @@
+# Two build environments sharing docker/Dockerfile:
+#   pi      Debian trixie arm64, tuned for the Raspberry Pi 4B (shipping target)
+#   ubuntu  Ubuntu 24.04, matching CI
+# Each has a shell service and a *-run service that runs the built app over
+# VNC. Build trees live in separate volumes, mounted at /src/build in both.
+
+x-pi: &pi
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    args:
+      BASE_IMAGE: debian:trixie
+      # The Pi 4B's BCM2711 lacks the ARMv8 crypto extensions.
+      CPU_FLAGS: -mcpu=cortex-a72+nocrypto
+  image: bitedj-dev:pi
+  platform: linux/arm64
+
+x-ubuntu: &ubuntu
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    args:
+      BASE_IMAGE: ubuntu:24.04
+  image: bitedj-dev:ubuntu
+
+x-run: &run
+  command: docker/run-vnc.sh
+  environment:
+    SCREEN_SIZE: ${SCREEN_SIZE:-1280x720}
+  # Real-time scheduling for the audio engine and main thread.
+  cap_add:
+    - SYS_NICE
+  ulimits:
+    rtprio: 99
+
+services:
+  pi:
+    <<: *pi
+    volumes:
+      - .:/src
+      - build-pi:/src/build
+      - ccache:/home/builder/.cache/ccache
+
+  pi-run:
+    <<: [*pi, *run]
+    ports:
+      - "127.0.0.1:5900:5900"
+    volumes:
+      - .:/src
+      - build-pi:/src/build
+      - settings-pi:/home/builder/.bitedj
+
+  ubuntu:
+    <<: *ubuntu
+    volumes:
+      - .:/src
+      - build-ubuntu:/src/build
+      - ccache:/home/builder/.cache/ccache
+
+  ubuntu-run:
+    <<: [*ubuntu, *run]
+    ports:
+      - "127.0.0.1:5901:5900"
+    volumes:
+      - .:/src
+      - build-ubuntu:/src/build
+      - settings-ubuntu:/home/builder/.bitedj
+
+# Named volumes: faster than bind mounts on macOS, and survive restarts.
+# ccache is shared; its keys include the compiler and flags.
+volumes:
+  build-pi:
+  build-ubuntu:
+  ccache:
+  settings-pi:
+  settings-ubuntu:
