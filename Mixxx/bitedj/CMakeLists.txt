@@ -725,6 +725,8 @@ add_library(mixxx-lib STATIC EXCLUDE_FROM_ALL
   src/mixer/previewdeck.cpp
   src/mixer/sampler.cpp
   src/mixer/samplerbank.cpp
+  src/harness/harnessbridge.cpp
+  src/harness/harnessids.cpp
   src/mixer/samplerdrive.cpp
   src/mixxxapplication.cpp
   src/mixxxmainwindow.cpp
@@ -1581,6 +1583,7 @@ if(BUILD_TESTING)
     src/test/fssamplerbankstore_test.cpp
     src/test/samplerdrive_test.cpp
     src/test/globaltrackcache_test.cpp
+    src/test/harnessbridge_test.cpp
     src/test/highcontrast_test.cpp
     src/test/hotcuecontrol_test.cpp
     src/test/imageutils_test.cpp

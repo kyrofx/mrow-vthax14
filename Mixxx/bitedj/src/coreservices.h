@@ -21,6 +21,7 @@ class VinylControlManager;
 class TrackCollectionManager;
 class Library;
 class SkinControls;
+class HarnessBridge;
 class SamplerDrive;
 class ControlPushButton;
 class RateRangeControl;
@@ -160,6 +161,7 @@ class CoreServices : public QObject {
     // Constructed after SystemSettings, which is what it enumerates and watches
     // removable drives through.
     std::unique_ptr<SamplerDrive> m_pSamplerDrive;
+    std::unique_ptr<HarnessBridge> m_pHarnessBridge;
     std::unique_ptr<HighContrast> m_pHighContrast;
 
     Timer m_runtime_timer;

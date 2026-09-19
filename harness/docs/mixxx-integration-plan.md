@@ -1,7 +1,12 @@
 # Mixxx integration plan
 
 Connects the harness to the BiteDJ fork (`Mixxx/bitedj`) on the Raspberry Pi,
-with suggestions refined by a cloud model. Supersedes the "Proposed fork
+with suggestions refined by a cloud model.
+
+**Status: built.** What was actually implemented, and how to use it, is in
+[mixxx-integration.md](mixxx-integration.md); what has and has not been
+verified is in [verification.md](verification.md). Still open: the GPIO
+hardware, a real cloud endpoint, and everything measured on the device. Supersedes the "Proposed fork
 connection" section of [mixxx-integration.md](mixxx-integration.md) once built.
 
 ## Decisions

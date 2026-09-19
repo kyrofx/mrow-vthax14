@@ -16,6 +16,7 @@
 #include "engine/controls/raterangecontrol.h"
 #include "engine/enginemixer.h"
 #include "library/coverartcache.h"
+#include "harness/harnessbridge.h"
 #include "library/library.h"
 #include "library/library_prefs.h"
 #include "library/playedtracks.h"
@@ -563,6 +564,14 @@ void CoreServices::initialize(QApplication* pApp) {
     // selection here is also what restores the grid at startup.
     m_pSamplerDrive = std::make_unique<SamplerDrive>(pConfig, m_pPlayerManager.get());
 
+    // Bite DJ: the Assist tab's link to the harness sidecar (play history,
+    // crowd ratings, next-song suggestions). Constructed after SystemSettings,
+    // whose drive events it follows, and before the skin parses, so the
+    // [Harness] controls exist for skin buttons and controller mappings (the
+    // GPIO crowd buttons among them) to bind to.
+    m_pHarnessBridge = std::make_unique<HarnessBridge>(
+            pConfig, m_pPlayerManager, m_pTrackCollectionManager);
+
     // Bite DJ: forward drive-removal events into the library so removable-media
     // features (Rekordbox) can drop an unmounted device from the browser sidebar
     // immediately, instead of waiting on their own slow background poll.
@@ -715,6 +724,9 @@ void CoreServices::finalize() {
     // further below); drop it here. Its destructor also stops a per-drive
     // recording, which needs both of them alive.
     m_pSystemSettings.reset();
+    // Holds shared_ptrs to PlayerManager and TrackCollectionManager, both
+    // deleted further below.
+    m_pHarnessBridge.reset();
 
     // SoundManager depend on Engine and Config
     qDebug() << t.elapsed(false).debugMillisWithUnit() << "deleting SoundManager";
