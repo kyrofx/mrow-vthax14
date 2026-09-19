@@ -12,9 +12,14 @@ python3 harness/src/harness.py
 ```
 
 Open <http://127.0.0.1:8765> on the same device. State persists in
-`harness/data/harness.sqlite3` (ignored by Git). Use `--database /path/to/file.sqlite3`
-to select another location. Stop with Ctrl+C. If Musicsearch is already running
+`~/.mixxx/harness/harness.sqlite3` — on the appliance, beside BiteDJ's own
+settings. Use `--database /path/to/file.sqlite3` (or `MROW_HARNESS_DB`) to
+select another location. Stop with Ctrl+C. If Musicsearch is already running
 on port 8765, use `--port 8766` and open that port instead.
+
+On the appliance this runs as a systemd user service beside BiteDJ; see
+[RPI/README.md](../RPI/README.md). The web page stays available there as a
+debug view — the DJ uses the Assist tab in BiteDJ.
 
 On the Pi, use Raspberry Pi OS with Python 3.9+ and open the page in its browser.
 The default server accepts local connections only. `--host 0.0.0.0` allows devices
@@ -81,10 +86,37 @@ multi-voter polling. Repeated presses replace the assessment. Suggestion skips
 exclude a track for that session but do not imply a global dislike. The panel
 polls every five seconds for external API events and invalidates stale setlists.
 
+## The cloud model
+
+Optional. Without one the harness ranks on its own, which is also what happens
+whenever the model cannot be reached — expected on a WiFi-only box that moves
+between venues. The model never introduces a track: it reorders the candidates
+the ranking already allowed and explains its picks, under a timeout.
+
+Configure it in `~/.config/mrow/harness.env` (mode 600, never committed), or in
+the environment. Any OpenAI- or Anthropic-compatible endpoint works:
+
+```sh
+MROW_MODEL_PROVIDER=anthropic     # or: openai
+MROW_MODEL=claude-opus-5
+MROW_MODEL_API_KEY=...
+# Optional:
+MROW_MODEL_BASE_URL=https://api.anthropic.com   # openai default: https://api.openai.com/v1
+MROW_MODEL_TIMEOUT=10             # seconds, 1-60
+MROW_MODEL_CANDIDATES=20          # how many ranked songs the model reorders
+MROW_MODEL_EFFORT=low             # Anthropic only; empty to omit
+```
+
+Only song metadata is sent — titles, artists, genres, BPM, key, the crowd's
+reactions. File paths, drive names and track ids stay on the device.
+`/api/recommend` reports which ranking answered (`source`) and why the model
+did not (`model_error`); `POST /api/status` reports the configuration.
+
 ## Mixxx
 
-M3U export and a local HTTP API are implemented. Automatic Mixxx events, deck
-loading, and embedded skin buttons are not implemented. See
+BiteDJ drives the harness directly (`src/harness/` in the fork): it reports
+plays, syncs each drive's catalog, and shows suggestions with crowd buttons on
+its Assist tab. M3U export and the web page remain for other setups. See
 [the integration contract](docs/mixxx-integration.md).
 
 ## Verify
@@ -94,5 +126,7 @@ python3 -m unittest discover -s harness/tests -v
 ```
 
 Automated tests exercise scoring, constraints, persistence, migrations, event
-deduplication, and an HTTP import → play → feedback → setlist → export flow. Pi performance,
-touchscreen interaction, and Mixxx integration still require device tests.
+deduplication, drive sync and eject, generated features, the model client
+against both protocols (including its fallbacks), and an HTTP import → play →
+feedback → setlist → export flow. Pi performance, touchscreen interaction, the
+GPIO buttons and a real cloud endpoint still require device tests.

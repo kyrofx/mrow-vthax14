@@ -110,6 +110,8 @@ class Ranker:
     """One immutable database snapshot per recommendation or complete setlist."""
     def __init__(self, tracks, plays, votes, session, options=None):
         self.options = policy(options)
+        self.session = session
+        self.votes = votes
         self.tracks = {t['id']: t for t in tracks}
         self.current = [p for p in plays if p['session'] == session]
         self.excluded = {p['track_id'] for p in self.current}
@@ -160,7 +162,8 @@ class Ranker:
             target = max(20, min(300, actual + change))
         results = []
         for t in self.tracks.values():
-            if t['id'] in used:
+            # Tracks on an ejected drive stay in history but cannot be suggested.
+            if t['id'] in used or not t.get('available', True):
                 continue
             effective = effective_bpm(t['bpm'], actual or target or t['bpm'], self.options['allow_half_double'])
             delta = effective - actual if previous and actual is not None else None
