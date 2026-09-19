@@ -118,6 +118,30 @@ bar block is launched on sway's own schedule and races the line above.
 
 ---
 
+## Bluetooth: org.bluez.Error.NotReady
+
+```
+[bluetoothctl]> scan on
+SetDiscoveryFilter failed: org.bluez.Error.NotReady
+```
+
+The adapter is rfkill soft-blocked, and nothing in the error says so.
+
+```bash
+rfkill list bluetooth            # Soft blocked: yes
+bluetoothctl show | grep PowerState   # PowerState: off-blocked
+sudo rfkill unblock bluetooth
+```
+
+It comes back on every boot because `systemd-rfkill` persists the state in
+`/var/lib/systemd/rfkill/`. `bluetooth-unblock.service` clears it at boot.
+Full detail in [audio.md](audio.md#it-comes-up-rfkill-blocked-from-cold).
+
+**A scan that finds dozens of bare-MAC devices but not your speaker is working
+correctly** — those are beacons and trackers. The speaker is not in pairing mode.
+
+---
+
 ## Cannot get out of BiteDJ / gestures do nothing
 
 Three fingers swiped down should give you a desktop. If it does not:
@@ -202,6 +226,8 @@ collapse to the bare `/media` and the browser looks empty with no error at all.
 | `eglSwapBuffers failed with 0x300d, surface: 0x0` ×9 at startup | Startup-only, does not recur. Count them: if the total stops growing, ignore it. |
 | ALSA `Unknown PCM cards.pcm.surround*`, `.iec958`, `.modem` | Standard ALSA config noise. |
 | `jack server is not running or cannot be started` | BiteDJ probes JACK and falls back. Harmless, but see below. |
+| `xhci_hcd ... ERROR Transfer event for disabled endpoint` | USB3 controller noise; the music drive is unaffected. |
+| `dbind-WARNING ... org.a11y.Bus was not provided` | waybar looking for an accessibility bus that is not running. |
 
 That last one appears even when audio is working correctly — BiteDJ probes JACK, finds
 none, and falls back to ALSA. See [audio.md](audio.md).

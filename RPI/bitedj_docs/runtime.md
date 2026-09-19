@@ -128,6 +128,16 @@ need tuning.
 **Confirmed working with a real drive.** A USB stick mounted at `/media/flx4/` and
 BiteDJ analyzed tracks from it without intervention.
 
+## Bluetooth
+
+`/etc/systemd/system/bluetooth-unblock.service`, enabled. The adapter is rfkill
+soft-blocked from cold on this box and `systemd-rfkill` restores that block at every
+boot, so Bluetooth is dead until something clears it. Symptom is
+`org.bluez.Error.NotReady`, which does not mention rfkill.
+
+`pipewire-alsa` is also required if BiteDJ is ever to output to a Bluetooth speaker —
+without it there is no ALSA route into PipeWire at all. See [audio.md](audio.md#bluetooth).
+
 ## Polkit
 
 `/etc/polkit-1/rules.d/50-bitedj.rules` grants, to a **local active session in the

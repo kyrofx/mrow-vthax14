@@ -1,0 +1,89 @@
+#!/bin/bash
+# Pair and connect a Bluetooth speaker.
+#
+# Wraps the bluetoothctl dance so it can be done at a venue without
+# remembering the order of operations. Read audio.md before relying on this
+# for anything but casual listening: A2DP latency is 100-300ms, which makes
+# beatmatching and cueing impossible. It is not a performance output.
+#
+# Usage:
+#   bitedj-bt scan              # 20s scan, lists named devices
+#   bitedj-bt pair <MAC>        # pair + trust + connect + make default sink
+#   bitedj-bt connect <MAC>     # reconnect something already paired
+#   bitedj-bt disconnect <MAC>
+#   bitedj-bt status
+#   bitedj-bt forget <MAC>
+
+set -uo pipefail
+
+say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+
+# The adapter is rfkill soft-blocked from cold on this box unless
+# bluetooth-unblock.service has run. Without this, every command below fails
+# with org.bluez.Error.NotReady, which does not mention rfkill at all.
+ensure_powered() {
+    if rfkill list bluetooth 2>/dev/null | grep -q 'Soft blocked: yes'; then
+        say "Bluetooth is rfkill soft-blocked; unblocking"
+        sudo rfkill unblock bluetooth
+        sleep 1
+    fi
+    bluetoothctl power on >/dev/null 2>&1
+    bluetoothctl agent on >/dev/null 2>&1
+    bluetoothctl default-agent >/dev/null 2>&1
+    bluetoothctl pairable on >/dev/null 2>&1
+}
+
+case "${1:-status}" in
+    scan)
+        ensure_powered
+        say "Scanning for 20s -- put the speaker in pairing mode NOW"
+        echo "    (JBL: hold the Bluetooth button until it beeps and flashes)"
+        timeout 25 bluetoothctl --timeout 20 scan on >/dev/null 2>&1
+        say "Devices with a name (a bare MAC as the name is not a speaker)"
+        bluetoothctl devices | while read -r _ mac name; do
+            # bluez uses the MAC as the name when the device never advertised
+            # one. Those are beacons and trackers, never something to pair.
+            [ "$(printf '%s' "$name" | tr -d ':-')" = "$(printf '%s' "$mac" | tr -d ':-')" ] \
+                || printf '  %-20s %s\n' "$mac" "$name"
+        done
+        echo
+        echo "Then: $(basename "$0") pair <MAC>"
+        ;;
+
+    pair)
+        MAC=${2:?usage: $(basename "$0") pair <MAC>}
+        ensure_powered
+        say "Pairing $MAC"
+        bluetoothctl pair "$MAC"
+        # trust = reconnect automatically next time without re-pairing.
+        bluetoothctl trust "$MAC"
+        bluetoothctl connect "$MAC"
+        sleep 3
+        say "Making it the default sink"
+        # WirePlumber creates the sink a moment after the link comes up.
+        for _ in 1 2 3 4 5; do
+            id=$(wpctl status 2>/dev/null | grep -iE 'bluez|bluetooth' | grep -oE '^[^0-9]*([0-9]+)\.' | grep -oE '[0-9]+' | head -1)
+            [ -n "${id:-}" ] && { wpctl set-default "$id" && echo "default sink -> $id"; break; }
+            sleep 2
+        done
+        "$0" status
+        ;;
+
+    connect)    bluetoothctl connect "${2:?need MAC}" ;;
+    disconnect) bluetoothctl disconnect "${2:?need MAC}" ;;
+    forget)     bluetoothctl remove "${2:?need MAC}" ;;
+
+    status)
+        say "Adapter"
+        rfkill list bluetooth 2>/dev/null | sed 's/^/  /'
+        bluetoothctl show 2>/dev/null | grep -E 'Powered|PowerState' | sed 's/^/  /'
+        say "Paired devices"
+        bluetoothctl devices Paired 2>/dev/null | sed 's/^/  /' || echo "  (none)"
+        say "Connected"
+        bluetoothctl devices Connected 2>/dev/null | sed 's/^/  /' || echo "  (none)"
+        say "PipeWire sinks"
+        wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' | sed 's/^/  /'
+        ;;
+
+    *) sed -n '3,16p' "$0" | sed 's/^# \?//'; exit 1 ;;
+esac

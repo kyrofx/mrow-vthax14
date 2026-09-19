@@ -1,0 +1,22 @@
+[Unit]
+Description=Clear the rfkill soft-block on Bluetooth
+# systemd-rfkill persists rfkill state across reboots in
+# /var/lib/systemd/rfkill/ and restores it at boot. Something had saved this
+# adapter as blocked, so every boot came up with Bluetooth administratively
+# off: bluetoothctl would report PowerState: off-blocked, 'power on' would
+# quietly fail, and 'scan on' returned org.bluez.Error.NotReady.
+#
+# Relying on the saved state being correct is fragile -- it is rewritten at
+# every shutdown from whatever the live state happened to be. This makes it
+# deterministic instead.
+Documentation=man:rfkill(8)
+After=systemd-rfkill.service bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/rfkill unblock bluetooth
+
+[Install]
+WantedBy=multi-user.target

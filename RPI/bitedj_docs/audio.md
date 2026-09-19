@@ -139,26 +139,95 @@ the underrun counter in `~/.mixxx/mixxx.log` while you do.
 
 ## Bluetooth
 
-The stack is ready — `bluez` and `libspa-0.2-bluetooth` are installed and `bluetooth.service`
-is enabled — but `hci0` comes up `DOWN`.
+### It comes up rfkill-blocked from cold
 
-```bash
-bluetoothctl power on
-bluetoothctl scan on            # note the MAC
-bluetoothctl pair <MAC>
-bluetoothctl trust <MAC>        # trust = reconnect automatically in future
-bluetoothctl connect <MAC>
+The symptom is misleading. `bluetoothctl` starts fine, registers an agent, and
+reports the controller — then:
+
+```
+[bluetoothctl]> scan on
+SetDiscoveryFilter failed: org.bluez.Error.NotReady
+Failed to start discovery: org.bluez.Error.NotReady
 ```
 
-It then appears as a PipeWire sink.
+Nothing in that mentions rfkill. `power on` also fails, silently. The tell is:
 
-**Do not use this to perform.** A2DP latency is 100–300 ms; you would hear the beat up to
-a third of a second after touching the jog wheel, which makes beatmatching and cueing
-impossible. It is useful for casual playback or for proving audio flows at all.
+```bash
+rfkill list bluetooth
+#   Soft blocked: yes        <- here
+bluetoothctl show | grep PowerState
+#   PowerState: off-blocked
+```
 
-It is also mutually exclusive with the configuration above: reaching a Bluetooth sink
-means BiteDJ outputs to PipeWire rather than `hw:`, which costs the separate headphone
-cue channel. For performance, use the controller's master out into a wired speaker.
+The hardware is fine — `dmesg` shows the `BCM4345C0` firmware patch loading
+normally at boot. The adapter is just administratively disabled.
+
+`systemd-rfkill` persists rfkill state across reboots in
+`/var/lib/systemd/rfkill/` and restores it at boot, so once something saves a
+block it comes back every time. On this box the offending file was
+`platform-soc-amba-fe201000.serial:bluetooth` containing `1`.
+
+Clearing it by hand works until the next shutdown rewrites it from live state,
+so `bluetooth-unblock.service` makes it deterministic instead:
+
+```
+ExecStart=/usr/sbin/rfkill unblock bluetooth
+```
+
+### Pairing
+
+Use the helper rather than remembering the bluetoothctl order of operations —
+it handles the rfkill check, the agent, and setting the default sink:
+
+```bash
+bitedj-bt scan              # 20s; put the speaker in pairing mode first
+bitedj-bt pair <MAC>        # pair + trust + connect + make default sink
+bitedj-bt status
+```
+
+`trust` matters: without it the speaker will not reconnect on its own next time.
+
+**If the speaker does not appear in a scan, it is not in pairing mode.** A JBL
+that is already connected to a phone will not advertise. Hold the Bluetooth
+button until it beeps and flashes, then scan again. A scan that returns dozens
+of bare-MAC devices and no speaker is a working Bluetooth stack finding beacons
+and trackers — not a broken one.
+
+### BiteDJ needs `pipewire-alsa` to reach it at all
+
+This is the part that is easy to miss. BiteDJ talks to PortAudio, PortAudio
+talks to ALSA, and a Bluetooth speaker exists only as a **PipeWire** sink. Those
+do not meet unless the PipeWire ALSA plugin is installed.
+
+Without `pipewire-alsa`, `/etc/alsa/conf.d/` is empty and `aplay -L` lists only
+raw hardware — no `pipewire` PCM anywhere. BiteDJ then has no route into
+PipeWire, and a perfectly paired speaker is simply not selectable.
+
+```bash
+sudo apt install pipewire-alsa
+aplay -L | grep -E '^(pipewire|default)$'     # both should now appear
+```
+
+Installing it does not disturb the DJ controller: BiteDJ opens `hw:3,0`
+explicitly, not `default`, so the hardware path is untouched.
+
+To use a Bluetooth speaker, set BiteDJ's output device to `pipewire` (or
+`default`) in SETTINGS > AUDIO.
+
+### Why you should not perform on it
+
+A2DP latency is **100-300ms**. You would hear the beat up to a third of a second
+after touching the jog wheel, so beatmatching and cueing are impossible. It is
+useful for casual playback, for checking a track, or for proving audio flows at
+all.
+
+It also costs you the headphone cue. Routing to a PipeWire sink means giving up
+`hw:3,0` and its 4-channel split (Master 1-2, Headphones 3-4) for a stereo sink.
+
+Mixxx can drive two devices at once — Master to `pipewire`, Headphones to
+`hw:3,0` — but they are separate clock domains (the Bluetooth clock and the
+controller's USB clock), which drift apart and produce xruns over a set. For
+performance, use the controller's master out into a wired speaker.
 
 ## USB ports
 

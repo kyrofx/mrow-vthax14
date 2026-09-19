@@ -42,6 +42,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     policykit-1 mate-polkit \
     foot pcmanfm \
     lisgd wvkbd \
+    bluez pipewire-alsa libspa-0.2-bluetooth \
     grim mesa-utils evtest evemu-tools
 
 # lisgd + wvkbd are what make the box recoverable without a keyboard: lisgd
@@ -58,6 +59,15 @@ if ! id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx audio; then
     sudo usermod -aG audio "$USER_NAME"
     note "Group change needs a re-login to take effect."
 fi
+
+say "Bluetooth: clear the persisted rfkill soft-block"
+# systemd-rfkill restores a saved rfkill state at every boot. If Bluetooth was
+# ever saved as blocked, it comes up dead and every bluetoothctl command fails
+# with org.bluez.Error.NotReady -- an error that never mentions rfkill.
+sudo install -m 644 "$CONFIG/etc/systemd/system/bluetooth-unblock.service" \
+    /etc/systemd/system/bluetooth-unblock.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now bluetooth-unblock.service
 
 say "CPU governor -> performance"
 sudo install -m 644 "$CONFIG/etc/systemd/system/cpu-performance.service" \
@@ -108,7 +118,7 @@ sed -i "s#/home/flx4/#$USER_HOME/#g" "$USER_HOME/.config/waybar/config.jsonc"
 install -m 644 "$CONFIG/home/.config/wireplumber/wireplumber.conf.d/50-bitedj-reserve-controller.conf" \
     "$USER_HOME/.config/wireplumber/wireplumber.conf.d/50-bitedj-reserve-controller.conf"
 
-for s in bitedj-session waybar-usb add-wifi \
+for s in bitedj-session waybar-usb add-wifi bitedj-bt \
          bitedj-screen bitedj-gestures bitedj-osk bitedj-power; do
     install -m 755 "$HERE/$s" "$USER_HOME/.local/bin/$s"
 done

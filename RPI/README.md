@@ -59,6 +59,7 @@ daemons. See [`bitedj_docs/desktop-access.md`](bitedj_docs/desktop-access.md).
 | `bitedj-power` | button | Power menu; always confirms, so a stray tap cannot end a set |
 | `waybar-usb` | from waybar | Custom module showing which removable drives are mounted |
 | `add-wifi` | manually | Stores a WiFi network **without connecting to it**, for venues you have not visited yet |
+| `bitedj-bt` | manually | Pairs a Bluetooth speaker; clears the rfkill block that otherwise makes every command fail with `NotReady` |
 
 ## Configuration
 
@@ -68,6 +69,7 @@ daemons. See [`bitedj_docs/desktop-access.md`](bitedj_docs/desktop-access.md).
 | `etc/systemd/system/cpu-performance.service` | same | Pins all cores to the `performance` governor |
 | `etc/systemd/system/getty@tty1.service.d/autologin.conf` | same | Console autologin (written by `raspi-config`) |
 | `etc/polkit-1/rules.d/50-bitedj.rules` | same | udisks2 + power-off without an unanswerable prompt |
+| `etc/systemd/system/bluetooth-unblock.service` | same | Clears the persisted rfkill soft-block on Bluetooth at boot |
 | `etc/sudoers.d/010-bitedj-nopasswd` | **optional** | Convenience only; read the warning in the file |
 | `home/.config/sway/config` | `~/.config/sway/config` | The session: what starts, in what order |
 | `home/.config/waybar/*` | `~/.config/waybar/` | Status bar |
