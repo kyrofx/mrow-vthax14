@@ -1,0 +1,16 @@
+[Unit]
+Description=MROW GPIO crowd buttons (Good / Mid / Bad) as a virtual MIDI port
+Documentation=file:%h/mrow/RPI/src/buttons/mrow_buttons.py
+After=default.target
+
+[Service]
+# Notifies once the MIDI port exists, so bitedj-session can wait for it:
+# PortMidi enumerates once at startup and does not see later hot-plugs.
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/bin/python3 %h/.local/share/mrow/buttons/mrow_buttons.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

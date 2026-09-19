@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MixxxControllerPreset mixxxVersion="2.3.0+" schemaVersion="1">
+  <info>
+    <!-- The name must contain the virtual port name the mrow-buttons daemon
+         opens (RPI/src/buttons): the fork pairs a MIDI device with the mapping
+         whose name contains the device's. -->
+    <name>MROW Crowd Buttons</name>
+    <author>MROW</author>
+    <description>Good / Mid / Bad crowd buttons on the Raspberry Pi's GPIO pins, sent as MIDI notes by the mrow-buttons daemon. Rates the current play ([Harness],rate_good / rate_mid / rate_bad). Remap here: point a note at another [Harness] control, or add notes for more buttons (for example [Harness],skip_suggestion_1, or [Harness],load_suggestion_1_deck_1).</description>
+    <!-- Built into the unit: applied automatically, never shown in the Devices picker. -->
+    <hidden>true</hidden>
+  </info>
+  <controller id="MROW:crowd-buttons">
+    <scriptfiles/>
+    <controls>
+      <!-- The daemon sends note on, velocity 127 on press and velocity 0 on
+           release, so each button needs only the 0x90 entry. Channel 1, notes
+           as in ~/.config/mrow/buttons.toml. -->
+      <control>
+        <group>[Harness]</group>
+        <key>rate_good</key>
+        <status>0x90</status>
+        <midino>0x3C</midino>
+        <options><Normal/></options>
+      </control>
+      <control>
+        <group>[Harness]</group>
+        <key>rate_mid</key>
+        <status>0x90</status>
+        <midino>0x3D</midino>
+        <options><Normal/></options>
+      </control>
+      <control>
+        <group>[Harness]</group>
+        <key>rate_bad</key>
+        <status>0x90</status>
+        <midino>0x3E</midino>
+        <options><Normal/></options>
+      </control>
+    </controls>
+    <outputs/>
+  </controller>
+</MixxxControllerPreset>

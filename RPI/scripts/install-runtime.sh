@@ -43,7 +43,11 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     foot pcmanfm \
     lisgd wvkbd \
     bluez pipewire-alsa libspa-0.2-bluetooth \
-    grim mesa-utils evtest evemu-tools
+    grim mesa-utils evtest evemu-tools \
+    python3-libgpiod python3-rtmidi
+
+# python3-libgpiod (v2) and python3-rtmidi are for the GPIO crowd buttons; the
+# DJ harness itself needs nothing beyond the Python standard library.
 
 # lisgd + wvkbd are what make the box recoverable without a keyboard: lisgd
 # turns touchscreen swipes into commands (sway's own bindgesture only sees
@@ -123,6 +127,31 @@ for s in bitedj-session waybar-usb add-wifi bitedj-bt \
     install -m 755 "$HERE/$s" "$USER_HOME/.local/bin/$s"
 done
 
+# ------------------------------------------------------------- MROW extras ---
+say "DJ harness and crowd buttons"
+install -d "$USER_HOME/.local/share/mrow" "$USER_HOME/.config/mrow" \
+           "$USER_HOME/.config/systemd/user" "$USER_HOME/.mixxx/harness"
+# Copies rather than links: the services must survive this checkout moving.
+rm -rf "$USER_HOME/.local/share/mrow/harness" "$USER_HOME/.local/share/mrow/buttons"
+cp -r "$HERE/../../harness" "$USER_HOME/.local/share/mrow/harness"
+cp -r "$HERE/../src/buttons" "$USER_HOME/.local/share/mrow/buttons"
+# Never overwrite a working wiring or an API key that is already in place.
+[ -f "$USER_HOME/.config/mrow/buttons.toml" ] ||
+    install -m 644 "$CONFIG/home/.config/mrow/buttons.toml" "$USER_HOME/.config/mrow/buttons.toml"
+install -m 644 "$CONFIG/home/.config/systemd/user/mrow-harness.service" \
+    "$USER_HOME/.config/systemd/user/mrow-harness.service"
+install -m 644 "$CONFIG/home/.config/systemd/user/mrow-buttons.service" \
+    "$USER_HOME/.config/systemd/user/mrow-buttons.service"
+systemctl --user daemon-reload 2>/dev/null || true
+systemctl --user enable mrow-harness.service mrow-buttons.service 2>/dev/null ||
+    note "Enable the services after the next login: systemctl --user enable --now mrow-harness mrow-buttons"
+
+# The GPIO character device is owned by the 'gpio' group on Raspberry Pi OS.
+if ! id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx gpio; then
+    note "Adding $USER_NAME to the 'gpio' group (needed for the crowd buttons)"
+    sudo usermod -aG gpio "$USER_NAME"
+fi
+
 # lisgd reads the touchscreen's evdev node directly.
 if ! id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx input; then
     note "Adding $USER_NAME to the 'input' group (needed for touch gestures)"
@@ -149,6 +178,14 @@ cat <<EOF
 Reboot to bring the appliance up:   sudo systemctl reboot
 
 Not done automatically, because both are choices rather than defaults:
+
+  * The cloud model for song suggestions. Without it the harness still runs and
+    suggests on its own. To enable it, create ~/.config/mrow/harness.env
+    (chmod 600) with an OpenAI- or Anthropic-compatible endpoint:
+        MROW_MODEL_PROVIDER=anthropic
+        MROW_MODEL=claude-opus-5
+        MROW_MODEL_API_KEY=...
+    then: systemctl --user restart mrow-harness
 
   * Audio output. BiteDJ needs its device set in SETTINGS > AUDIO. If you use a
     DJ controller, edit the WirePlumber rule first so it names YOUR controller --

@@ -1,0 +1,23 @@
+# GPIO crowd buttons (RPI/src/buttons). Wire each button between its GPIO pin
+# and ground; the pull-up is enabled in software, so a press reads as low.
+#
+# Rewiring a button: change its pin here.
+# Changing what a button does: edit the notes in the Mixxx mapping
+# res/controllers/mrow-crowd-buttons.midi.xml (any [Harness] control works).
+
+chip = "/dev/gpiochip0"        # Pi 4. A Pi 5 exposes its pins on a different chip.
+port_name = "MROW Crowd Buttons" # Must stay in the Mixxx mapping's <name>.
+channel = 1
+debounce_ms = 30
+
+[buttons.good]
+pin = 17                       # BCM numbering: GPIO17 is physical pin 11
+note = 0x3C
+
+[buttons.mid]
+pin = 27                       # physical pin 13
+note = 0x3D
+
+[buttons.bad]
+pin = 22                       # physical pin 15
+note = 0x3E

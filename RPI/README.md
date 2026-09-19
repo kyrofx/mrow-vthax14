@@ -17,6 +17,8 @@ covered there in more depth, including why each choice was made.
 - `config/` — configuration files, laid out mirroring their real paths on the Pi, so
   `config/etc/...` goes to `/etc/...` and `config/home/...` goes to `~/...`.
 - `src/` — Raspberry Pi application and device code.
+  - `src/buttons/` — the GPIO crowd buttons (Good / Mid / Bad) as a virtual
+    MIDI port BiteDJ reads; see below.
 - `tests/` — automated tests for Raspberry Pi code.
 
 ## Getting a box running
@@ -88,3 +90,56 @@ These are checked in as they ran on the reference box and will need editing else
   order — check `aplay -l` rather than assuming.
 - **`autologin.conf` names the user.** `install-runtime.sh` substitutes the current user
   for the waybar path, but `raspi-config` regenerates this file for whoever runs it.
+
+## Crowd buttons and the DJ harness
+
+Two user services run beside BiteDJ on the appliance, both installed and
+enabled by `scripts/install-runtime.sh`:
+
+| Service | What it does |
+| --- | --- |
+| `mrow-harness` | The DJ harness (`../harness`): play history, crowd ratings and next-song suggestions, in `~/.mixxx/harness/`. Optionally refined by a cloud model. |
+| `mrow-buttons` | Three GPIO buttons sent as MIDI notes on a virtual port BiteDJ maps to `[Harness],rate_good / rate_mid / rate_bad`. |
+
+`bitedj-session` starts both before BiteDJ. The button service is ordered first
+on purpose: BiteDJ enumerates MIDI devices once at startup, so a port that
+appears later is not seen until a rescan.
+
+### Wiring
+
+Each button goes between its GPIO pin and ground; the pull-up is enabled in
+software, so a press reads low. The defaults (BCM numbering):
+
+| Button | GPIO | Physical pin | Note |
+| --- | --- | --- | --- |
+| Good | 17 | 11 | 0x3C |
+| Mid | 27 | 13 | 0x3D |
+| Bad | 22 | 15 | 0x3E |
+
+Ground is on physical pins 6, 9, 14, 20, 25, 30, 34 or 39.
+
+### Remapping
+
+Two layers, neither needing a rebuild:
+
+- **Rewiring a button** — `~/.config/mrow/buttons.toml` (pin and note per
+  button, GPIO chip, MIDI channel, debounce). Check it without starting the
+  service: `python3 ~/.local/share/mrow/buttons/mrow_buttons.py --check`.
+- **Changing what a button does** — the Mixxx mapping
+  `res/controllers/mrow-crowd-buttons.midi.xml` in the fork. Point a note at
+  any `[Harness]` control, or add a fourth button for, say,
+  `skip_suggestion_1`. A DJ controller's pads can bind to the same controls.
+
+### Checking it
+
+```sh
+systemctl --user status mrow-buttons mrow-harness
+journalctl --user -u mrow-buttons -f      # prints the button on each press
+aseqdump -l | grep MROW                   # the virtual port exists
+curl -s localhost:8765/health             # the harness is answering
+```
+
+If BiteDJ does not react, confirm the port name in `buttons.toml` still matches
+the mapping's `<name>`: the fork pairs a device with a mapping by name, and
+hides MIDI devices that have none.
+
