@@ -15,8 +15,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-PROVIDERS = ('openai', 'anthropic')
-DEFAULT_BASE_URLS = {'openai': 'https://api.openai.com/v1', 'anthropic': 'https://api.anthropic.com'}
+PROVIDERS = ('openai', 'anthropic', 'openrouter')
+DEFAULT_BASE_URLS = {'openai': 'https://api.openai.com/v1', 'anthropic': 'https://api.anthropic.com',
+                     'openrouter': 'https://openrouter.ai/api/v1'}
 DEFAULT_ENV_FILE = Path('~/.config/mrow/harness.env').expanduser()
 
 SYSTEM_PROMPT = """You help a DJ choose the next song during a live set.
@@ -86,7 +87,7 @@ def load_config(environ=None, env_file=DEFAULT_ENV_FILE):
     if not (provider or model or api_key):
         return None
     if provider not in PROVIDERS:
-        raise ValueError('MROW_MODEL_PROVIDER must be openai or anthropic')
+        raise ValueError('MROW_MODEL_PROVIDER must be openai, anthropic or openrouter')
     if not model or not api_key:
         raise ValueError('MROW_MODEL and MROW_MODEL_API_KEY are both required')
     try:
@@ -135,20 +136,22 @@ class ModelClient:
                 self.cache[cache_key] = picks
         return picks
 
-    def complete(self, user_message):
+    def complete(self, user_message, system_prompt=SYSTEM_PROMPT):
         c = self.config
         if c.provider == 'anthropic':
             url = c.base_url + '/v1/messages'
             headers = {'x-api-key': c.api_key, 'anthropic-version': '2023-06-01'}
-            body = {'model': c.model, 'max_tokens': 4000, 'system': SYSTEM_PROMPT,
+            body = {'model': c.model, 'max_tokens': 4000, 'system': system_prompt,
                     'messages': [{'role': 'user', 'content': user_message}]}
             if c.effort:
                 body['output_config'] = {'effort': c.effort}
         else:
             url = c.base_url + '/chat/completions'
             headers = {'Authorization': 'Bearer ' + c.api_key}
-            body = {'model': c.model, 'messages': [{'role': 'system', 'content': SYSTEM_PROMPT},
+            body = {'model': c.model, 'max_tokens': 4000, 'messages': [{'role': 'system', 'content': system_prompt},
                                                    {'role': 'user', 'content': user_message}]}
+            if c.provider == 'openrouter':
+                headers['X-Title'] = 'MROW Mixxx Agent'
         request = urllib.request.Request(url, json.dumps(body).encode(), method='POST',
                                          headers={'Content-Type': 'application/json', **headers})
         try:
@@ -190,6 +193,8 @@ def response_text(provider, reply):
 
 
 def parse_picks(text, aliases, count):
+    if not isinstance(text, str):
+        raise ModelError('Model reply was not text')
     start, end = text.find('{'), text.rfind('}')
     if start < 0 or end <= start:
         raise ModelError('Model reply contained no JSON')
@@ -201,7 +206,7 @@ def parse_picks(text, aliases, count):
         raise ModelError('Model reply had no picks')
     result, seen = [], set()
     for pick in picks:
-        if not isinstance(pick, dict) or pick.get('id') not in aliases:
+        if not isinstance(pick, dict) or not isinstance(pick.get('id'), str) or pick['id'] not in aliases:
             continue  # Ignore invented or malformed entries rather than trusting them.
         track_id = aliases[pick['id']]
         if track_id in seen:

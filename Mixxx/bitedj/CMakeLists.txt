@@ -726,6 +726,7 @@ add_library(mixxx-lib STATIC EXCLUDE_FROM_ALL
   src/mixer/sampler.cpp
   src/mixer/samplerbank.cpp
   src/harness/harnessbridge.cpp
+  src/harness/harnessworker.cpp
   src/harness/harnessids.cpp
   src/mixer/samplerdrive.cpp
   src/mixxxapplication.cpp
@@ -1739,9 +1740,22 @@ if(DOWNLOAD_MANUAL AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/res/Mixxx-Manual.
 endif()
 
 target_sources(mixxx PRIVATE res/mixxx.qrc)
+
+# The agent is part of the binary, including installed/Pi builds. No external
+# checkout, Python package installation, web server or systemd service needed.
+set(BITEDJ_AGENT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../harness/src" CACHE PATH
+    "Source directory for the built-in DJ agent")
+foreach(module worker harness agent model scoring)
+  if(NOT EXISTS "${BITEDJ_AGENT_SOURCE_DIR}/${module}.py")
+    message(FATAL_ERROR "Missing bundled agent: ${BITEDJ_AGENT_SOURCE_DIR}/${module}.py. Build from MROW or set BITEDJ_AGENT_SOURCE_DIR.")
+  endif()
+endforeach()
+configure_file(res/agent.qrc.in "${CMAKE_CURRENT_BINARY_DIR}/agent.qrc" @ONLY)
+target_sources(mixxx PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/agent.qrc")
 set_target_properties(mixxx PROPERTIES AUTORCC ON)
 if(BUILD_TESTING)
   target_sources(mixxx-test PRIVATE res/mixxx.qrc)
+  target_sources(mixxx-test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/agent.qrc")
   set_target_properties(mixxx-test PROPERTIES AUTORCC ON)
 endif()
 

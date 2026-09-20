@@ -19,6 +19,13 @@ tools/debian_buildenv.sh setup
 
 ## Configure
 
+Build from the full MROW checkout (`Mixxx/bitedj`) so CMake can embed
+`../../harness/src`. For a standalone fork checkout, add
+`-DBITEDJ_AGENT_SOURCE_DIR=/absolute/path/to/mrow/harness/src` below.
+The deployed app needs Python 3.9+ but no source checkout or HTTP service.
+Optional [key/model provisioning](../../harness/README.md#optional-builddeploy-provisioning)
+uses a private file, never CMake variables or binary-embedded secrets.
+
 ```bash
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \

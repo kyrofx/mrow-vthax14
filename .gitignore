@@ -28,6 +28,8 @@ dist/
 
 # Local DJ library, history, and feedback
 harness/data/
+# Provisioned API credentials must never enter source/build artifacts.
+agent.json
 .playwright-cli/
 output/playwright/
 

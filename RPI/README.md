@@ -125,17 +125,18 @@ These are checked in as they ran on the reference box and will need editing else
 - **`autologin.conf` names the user.** `install-runtime.sh` substitutes the current user
   for the waybar path, but `raspi-config` regenerates this file for whoever runs it.
 
-## Crowd buttons and the DJ harness
+## Crowd buttons and the built-in DJ agent
 
-Two user services run beside BiteDJ on the appliance, both installed and
-enabled by `scripts/install-runtime.sh`:
+Mixxx owns its embedded agent and starts it automatically over private process
+pipes. No browser or localhost service is required. Python 3.9+ is the only agent
+runtime dependency, installed by `scripts/install-runtime.sh`. The GPIO bridge
+remains a separate service:
 
 | Service | What it does |
 | --- | --- |
-| `mrow-harness` | The DJ harness (`../harness`): play history, crowd ratings and next-song suggestions, in `~/.mixxx/harness/`. Optionally refined by a cloud model. |
 | `mrow-buttons` | Three GPIO buttons sent as MIDI notes on a virtual port BiteDJ maps to `[Harness],rate_good / rate_mid / rate_bad`. |
 
-`bitedj-session` starts both before BiteDJ. The button service is ordered first
+`bitedj-session` starts the buttons before BiteDJ. The button service is ordered first
 on purpose: BiteDJ enumerates MIDI devices once at startup, so a port that
 appears later is not seen until a rescan.
 
@@ -167,15 +168,17 @@ Two layers, neither needing a rebuild:
 ### Checking it
 
 ```sh
-systemctl --user status mrow-buttons mrow-harness
+systemctl --user status mrow-buttons
 journalctl --user -u mrow-buttons -f      # prints the button on each press
 aseqdump -l | grep MROW                   # the virtual port exists
-curl -s localhost:8765/health             # the harness is answering
 ```
 
 If BiteDJ does not react, confirm the port name in `buttons.toml` still matches
 the mapping's `<name>`: the fork pairs a device with a mapping by name, and
 hides MIDI devices that have none.
+Use **Assist → Models** to inspect the agent, enter a runtime key or change its
+models. Optional [build/deploy provisioning](../harness/README.md#optional-builddeploy-provisioning)
+loads the key and models automatically on boot without placing secrets in the binary.
 
 ## Deploying from a workstation
 
@@ -187,7 +190,8 @@ appliance runs — and copies the result over ssh:
 RPI/scripts/deploy.sh                 # build and deploy everything to flx4
 RPI/scripts/deploy.sh --dry-run       # print what it would do, change nothing
 RPI/scripts/deploy.sh --no-build      # deploy what is already built
-RPI/scripts/deploy.sh --only harness  # mixxx | harness | buttons | all
+RPI/scripts/deploy.sh --only mixxx    # mixxx (includes agent) | buttons | all
+RPI/scripts/deploy.sh --agent-config "$HOME/.config/mrow-build/agent.json"
 RPI/scripts/deploy.sh --host bitedj   # another device (ssh alias or user@host)
 RPI/scripts/deploy.sh --restart       # restart BiteDJ afterwards
 ```
@@ -196,7 +200,8 @@ RPI/scripts/deploy.sh --restart       # restart BiteDJ afterwards
 | --- | --- | --- |
 | Binary | `/usr/local/bin/mixxx` (and the `bitedj` symlink) | yes |
 | Resources (skin, mappings, effects) | `/usr/local/share/mixxx` | yes |
-| DJ harness | `~/.local/share/mrow/harness` | no |
+| Agent code | embedded in `/usr/local/bin/mixxx` | included above |
+| Optional agent credentials | `~/.config/mrow/agent.json` (mode 600) | no |
 | Crowd buttons | `~/.local/share/mrow/buttons` | no |
 | Services, session script, `buttons.toml` | `~/.config`, `~/.local/bin` | no |
 
@@ -216,7 +221,7 @@ The new build starts at the next launch, or restart it with
 `ssh flx4 'pkill -x mixxx'` (`bitedj-session` relaunches it), or pass
 `--restart`.
 
-Local wiring is never clobbered: `buttons.toml` and `~/.config/mrow/harness.env`
-are only created when missing. Afterwards the script prints the installed
-version, checks `ldd` for missing libraries, validates the button config, and
-restarts the two user services.
+Local wiring is never clobbered; credentials change only with `--agent-config`.
+The script checks `ldd`, validates button configuration and restarts the button
+service. The obsolete `mrow-harness` service is disabled, not deleted, and its
+history is preserved. Old `harness.env` files are not read by the embedded agent.

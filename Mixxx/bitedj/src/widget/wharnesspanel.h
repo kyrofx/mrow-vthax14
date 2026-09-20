@@ -44,6 +44,8 @@ class WHarnessPanel : public WWidget {
     QPushButton* addButton(const QString& text, const char* objectName, Action action);
     void rebuildSuggestions();
     void updateHeader();
+    void showAgentSettings();
+    void showSetlist();
 
     QGridLayout* m_pLayout;
     QLabel* m_pStatus;

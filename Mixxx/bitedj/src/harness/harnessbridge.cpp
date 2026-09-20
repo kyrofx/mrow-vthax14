@@ -1,5 +1,6 @@
 #include "harness/harnessbridge.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -47,9 +48,9 @@ constexpr int kReplayWindow = 6;
 /// Plays, ratings and syncs are small; anything this slow is a hung harness.
 constexpr int kRequestTimeoutMillis = 5000;
 /// Suggestions may wait on the cloud model, which the harness itself times out
-/// (MROW_MODEL_TIMEOUT, 10 s by default) before falling back to its own
-/// ranking. Leave it room to do that and still answer.
-constexpr int kSuggestionTimeoutMillis = 20000;
+/// (25 s for runtime OpenRouter settings, up to 60 s from the environment)
+/// before falling back locally. Leave it room to finish and still answer.
+constexpr int kSuggestionTimeoutMillis = 65000;
 constexpr int kFirstRetryMillis = 1000;
 constexpr int kMaxRetryMillis = 15000;
 constexpr int kSyncIntervalMillis = 15000;
@@ -146,8 +147,15 @@ HarnessBridge::HarnessBridge(UserSettingsPointer pConfig,
         kLogger.info() << "Disabled by" << kConfigEnabled;
         return;
     }
-    m_statusDetail = tr("Connecting to the assistant");
-    kLogger.info() << "Harness at" << m_baseUrl.toString() << "session" << m_session;
+    // HTTP is an explicit developer/test override, never the appliance default.
+    if (!m_pConfig->getValue(ConfigKey(kGroup, QStringLiteral("external")), false)) {
+        m_worker = std::make_unique<HarnessWorker>(
+                QDir(m_pConfig->getSettingsPath()).filePath(QStringLiteral("harness/harness.sqlite3")));
+        connect(m_worker.get(), &HarnessWorker::stopped,
+                this, &HarnessBridge::scheduleRetry);
+    }
+    m_statusDetail = tr("Starting the built-in agent");
+    kLogger.info() << "Agent session" << m_session << "built-in" << bool(m_worker);
 
     connect(&PlayerInfo::instance(),
             &PlayerInfo::currentPlayingTrackChanged,
@@ -167,7 +175,11 @@ HarnessBridge::HarnessBridge(UserSettingsPointer pConfig,
     // The Rekordbox catalog of a drive is parsed in the background some time
     // after it mounts; poll for it rather than hook the parser.
     m_syncTimer.setInterval(kSyncIntervalMillis);
-    connect(&m_syncTimer, &QTimer::timeout, this, &HarnessBridge::syncDrives);
+    connect(&m_syncTimer, &QTimer::timeout, this, [this] {
+        syncDrives();
+        // The agent caches unchanged context, so polling does not spend tokens.
+        requestSuggestions();
+    });
     m_syncTimer.start();
 
     probeHealth();
@@ -175,6 +187,7 @@ HarnessBridge::HarnessBridge(UserSettingsPointer pConfig,
 
 HarnessBridge::~HarnessBridge() {
     s_pInstance.storeRelease(nullptr);
+    m_worker.reset();
 }
 
 void HarnessBridge::setupControls() {
@@ -263,6 +276,7 @@ void HarnessBridge::onCurrentPlayingTrackChanged(TrackPointer pTrack) {
     play.key = mixxx::harness::camelotForKey(pTrack->getKey());
     play.location = location;
     play.durationSeconds = pTrack->getDuration();
+    play.libraryBpm = pTrack->getBpm();
     const int deckIndex = PlayerInfo::instance().getCurrentPlayingDeck();
     if (deckIndex >= 0) {
         play.group = PlayerManager::groupForDeck(deckIndex);
@@ -296,8 +310,9 @@ void HarnessBridge::reportPlay(const Play& play) {
             {QStringLiteral("genre"), play.genre},
             {QStringLiteral("path"), play.location},
     };
-    if (play.bpm > 0) {
-        track.insert(QStringLiteral("bpm"), play.bpm);
+    const double libraryBpm = play.libraryBpm > 0 ? play.libraryBpm : play.bpm;
+    if (libraryBpm > 0) {
+        track.insert(QStringLiteral("bpm"), libraryBpm);
     }
     if (!play.key.isEmpty()) {
         track.insert(QStringLiteral("camelot"), play.key);
@@ -384,7 +399,27 @@ void HarnessBridge::skipSuggestion(int index) {
 }
 
 void HarnessBridge::loadSuggestion(int index, int deckNumber) {
-    if (!m_enabled || index < 0 || index >= m_suggestions.size() || !m_pPlayerManager) {
+    if (!m_enabled || index < 0 || index >= m_suggestions.size() || !m_pPlayerManager || agentBusy()) {
+        return;
+    }
+    loadTrack(m_suggestions.at(index), deckNumber);
+}
+
+void HarnessBridge::loadPlanTrack(int index, int deckNumber) {
+    const QJsonArray tracks = m_agentPlan.value(QStringLiteral("tracks")).toArray();
+    if (index < 0 || index >= tracks.size() || agentBusy()) {
+        return;
+    }
+    const QJsonObject track = tracks.at(index).toObject();
+    Suggestion suggestion;
+    suggestion.trackId = track.value(QStringLiteral("id")).toString();
+    suggestion.path = track.value(QStringLiteral("path")).toString();
+    suggestion.title = track.value(QStringLiteral("title")).toString();
+    loadTrack(suggestion, deckNumber);
+}
+
+void HarnessBridge::loadTrack(const Suggestion& suggestion, int deckNumber) {
+    if (!m_enabled || !m_pPlayerManager) {
         return;
     }
     if (deckNumber < 1 || deckNumber > m_pPlayerManager->numberOfDecks()) {
@@ -396,7 +431,6 @@ void HarnessBridge::loadSuggestion(int index, int deckNumber) {
         publish(tr("Deck %1 is playing; load into the other deck").arg(deckNumber), true);
         return;
     }
-    const Suggestion& suggestion = m_suggestions.at(index);
     QString location = mixxx::harness::locationForTrackId(suggestion.trackId, mountedDrives());
     if (location.isEmpty()) {
         location = suggestion.path;
@@ -408,6 +442,31 @@ void HarnessBridge::loadSuggestion(int index, int deckNumber) {
     m_pPlayerManager->slotLoadLocationToPlayer(location, group, false);
 }
 
+void HarnessBridge::planSet(int count, const QString& direction, bool clear) {
+    QJsonObject options = m_agentPlan.value(QStringLiteral("options")).toObject();
+    options.insert(QStringLiteral("direction"), direction);
+    m_agentAction = {{QStringLiteral("action"), clear ? QStringLiteral("clear") : QStringLiteral("generate")},
+            {QStringLiteral("count"), count},
+            {QStringLiteral("options"), options}};
+    requestSuggestions();
+}
+
+void HarnessBridge::agentRequest(const QString& path, const QJsonObject& body,
+        QObject* context, std::function<void(const QJsonObject&)> callback) {
+    if (!m_worker && m_baseUrl.host() != QStringLiteral("127.0.0.1") &&
+            m_baseUrl.host() != QStringLiteral("localhost") &&
+            m_baseUrl.host() != QStringLiteral("::1")) {
+        callback(QJsonObject{{QStringLiteral("error"), tr("Agent settings require a localhost assistant URL")}});
+        return;
+    }
+    QJsonObject request = body;
+    request.insert(QStringLiteral("session"), m_session);
+    call(path, request, kSuggestionTimeoutMillis, context,
+            [callback = std::move(callback)](const QJsonObject& result, bool) {
+        callback(result);
+    });
+}
+
 void HarnessBridge::refreshSuggestions() {
     if (!m_enabled) {
         return;
@@ -416,6 +475,7 @@ void HarnessBridge::refreshSuggestions() {
         probeHealth();
         return;
     }
+    m_agentAction.insert(QStringLiteral("retry"), true);
     requestSuggestions();
 }
 
@@ -423,6 +483,10 @@ void HarnessBridge::startNewSession() {
     m_session = mixxx::harness::nextSessionName(QDate::currentDate(), m_session);
     m_pConfig->setValue(kConfigSession, m_session);
     m_current = CurrentPlay();
+    m_agentPlan = QJsonObject();
+    m_agentAction = QJsonObject();
+    m_suggestions.clear();
+    m_pCoSuggestionCount->forceSet(0);
     setCurrentRating(Rating::None);
     m_recentLocations.clear();
     kLogger.info() << "New set" << m_session;
@@ -431,6 +495,27 @@ void HarnessBridge::startNewSession() {
 }
 
 // ---- Transport -------------------------------------------------------------
+
+void HarnessBridge::call(const QString& path, const QJsonObject& body, int timeoutMillis,
+        QObject* context, HarnessWorker::Callback callback) {
+    if (!m_enabled) {
+        callback({{QStringLiteral("error"), tr("Assist is turned off")}}, false);
+        return;
+    }
+    if (m_worker) {
+        m_worker->request(path, body, timeoutMillis, context, std::move(callback));
+        return;
+    }
+    QNetworkReply* reply = post(path, body, timeoutMillis);
+    connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
+    connect(reply, &QNetworkReply::finished, context, [reply, callback = std::move(callback)] {
+        QJsonObject result = readJson(reply);
+        if (reply->error() != QNetworkReply::NoError && !result.contains(QStringLiteral("error"))) {
+            result.insert(QStringLiteral("error"), reply->errorString());
+        }
+        callback(result, isTransient(reply->error()));
+    });
+}
 
 QNetworkReply* HarnessBridge::post(
         const QString& path, const QJsonObject& body, int timeoutMillis) {
@@ -449,34 +534,34 @@ void HarnessBridge::enqueue(Request request) {
     }
     m_queue.append(std::move(request));
     sendNext();
+    emit stateChanged();
 }
 
 void HarnessBridge::sendNext() {
     if (m_requestInFlight || m_queue.isEmpty() || m_retryTimer.isActive()) {
+        if (!m_requestInFlight && m_queue.isEmpty() && !m_retryTimer.isActive() && m_suggestionsDirty) {
+            requestSuggestions();
+        }
         return;
     }
     m_requestInFlight = true;
     const Request& request = m_queue.first();
-    QNetworkReply* pReply = post(request.path, request.body, kRequestTimeoutMillis);
-    connect(pReply, &QNetworkReply::finished, this, [this, pReply] {
-        pReply->deleteLater();
+    call(request.path, request.body, kRequestTimeoutMillis, this,
+            [this](const QJsonObject& reply, bool transient) {
         m_requestInFlight = false;
         if (m_queue.isEmpty()) {
             return;
         }
-        const QNetworkReply::NetworkError error = pReply->error();
-        if (error != QNetworkReply::NoError && isTransient(error)) {
+        const QString error = reply.value(QStringLiteral("error")).toString();
+        if (!error.isEmpty() && transient) {
             // Keep it at the head: order matters (a rating needs its play).
-            scheduleRetry(pReply->errorString());
+            scheduleRetry(error);
             return;
         }
         Request done = m_queue.takeFirst();
-        const QJsonObject reply = readJson(pReply);
-        if (error != QNetworkReply::NoError) {
+        if (!error.isEmpty()) {
             // Refused as invalid: retrying would be refused again.
-            kLogger.warning() << done.path << "rejected:"
-                              << reply.value(QStringLiteral("error")).toString(
-                                         pReply->errorString());
+            kLogger.warning() << done.path << "rejected:" << error;
         } else {
             m_retryDelayMillis = kFirstRetryMillis;
             if (m_status == Status::Offline) {
@@ -487,6 +572,7 @@ void HarnessBridge::sendNext() {
             }
         }
         sendNext();
+        emit stateChanged();
     });
 }
 
@@ -494,21 +580,16 @@ void HarnessBridge::scheduleRetry(const QString& reason) {
     if (m_status != Status::Offline) {
         kLogger.warning() << "Harness unreachable:" << reason;
     }
-    setStatus(Status::Offline, tr("Assistant not running"));
+    setStatus(Status::Offline, reason);
     m_retryTimer.start(m_retryDelayMillis);
     m_retryDelayMillis = std::min(m_retryDelayMillis * 2, kMaxRetryMillis);
 }
 
 void HarnessBridge::probeHealth() {
-    QUrl url = m_baseUrl;
-    url.setPath(QStringLiteral("/health"));
-    QNetworkRequest request(url);
-    request.setTransferTimeout(kRequestTimeoutMillis);
-    QNetworkReply* pReply = m_network.get(request);
-    connect(pReply, &QNetworkReply::finished, this, [this, pReply] {
-        pReply->deleteLater();
-        if (pReply->error() != QNetworkReply::NoError) {
-            scheduleRetry(pReply->errorString());
+    call(QStringLiteral("/health"), {}, kRequestTimeoutMillis, this,
+            [this](const QJsonObject& reply, bool) {
+        if (reply.contains(QStringLiteral("error"))) {
+            scheduleRetry(reply.value(QStringLiteral("error")).toString());
             return;
         }
         const bool wasOffline = m_status == Status::Offline;
@@ -527,33 +608,47 @@ void HarnessBridge::requestSuggestions() {
     if (!m_enabled) {
         return;
     }
-    if (m_suggestionsInFlight) {
+    if (m_suggestionsInFlight || m_requestInFlight || !m_queue.isEmpty()) {
         // Something changed while the last request was out; ask again after.
         m_suggestionsDirty = true;
         return;
     }
     m_suggestionsInFlight = true;
     m_suggestionsDirty = false;
-    const QJsonObject body{
+    QJsonObject body{
             {QStringLiteral("session"), m_session},
             {QStringLiteral("count"), kSuggestionCount},
     };
-    QNetworkReply* pReply = post(QStringLiteral("/api/recommend"), body, kSuggestionTimeoutMillis);
-    connect(pReply, &QNetworkReply::finished, this, [this, pReply] {
-        pReply->deleteLater();
+    for (auto it = m_agentAction.constBegin(); it != m_agentAction.constEnd(); ++it) {
+        body.insert(it.key(), it.value());
+    }
+    m_agentAction = QJsonObject();
+    const QString requestedSession = m_session;
+    emit stateChanged();
+    call(QStringLiteral("/api/agent"), body, kSuggestionTimeoutMillis, this,
+            [this, requestedSession](const QJsonObject& reply, bool transient) {
         m_suggestionsInFlight = false;
-        if (pReply->error() != QNetworkReply::NoError) {
-            if (isTransient(pReply->error())) {
-                scheduleRetry(pReply->errorString());
-            } else {
-                kLogger.warning() << "Suggestions rejected:" << pReply->errorString();
-            }
+        if (m_suggestionsDirty || requestedSession != m_session) {
+            requestSuggestions();
             return;
         }
-        const QJsonObject reply = readJson(pReply);
+        if (reply.contains(QStringLiteral("error"))) {
+            if (transient) {
+                scheduleRetry(reply.value(QStringLiteral("error")).toString());
+            } else {
+                kLogger.warning() << "Suggestions rejected:" << reply.value(QStringLiteral("error")).toString();
+                setStatus(Status::Heuristic, tr("Agent request failed"));
+            }
+            emit stateChanged();
+            return;
+        }
+        m_agentPlan = reply.value(QStringLiteral("plan")).toObject();
         m_suggestions.clear();
         const QJsonArray tracks = reply.value(QStringLiteral("tracks")).toArray();
         for (const QJsonValue& value : tracks) {
+            if (m_suggestions.size() >= kSuggestionCount) {
+                break;
+            }
             const QJsonObject track = value.toObject();
             Suggestion suggestion;
             suggestion.trackId = track.value(QStringLiteral("id")).toString();
@@ -574,7 +669,7 @@ void HarnessBridge::requestSuggestions() {
         m_pCoSuggestionCount->forceSet(m_suggestions.size());
         const QString modelError = reply.value(QStringLiteral("model_error")).toString();
         if (reply.value(QStringLiteral("source")).toString() == QStringLiteral("model")) {
-            setStatus(Status::Model, QString());
+            setStatus(Status::Model, reply.value(QStringLiteral("summary")).toString());
         } else {
             setStatus(Status::Heuristic, modelError);
         }
@@ -615,23 +710,6 @@ QList<mixxx::harness::Drive> HarnessBridge::mountedDrives() const {
     return drives;
 }
 
-int HarnessBridge::catalogSizeForDrive(const mixxx::harness::Drive& drive) const {
-    if (!m_pTrackCollectionManager) {
-        return 0;
-    }
-    QSqlQuery query(m_pTrackCollectionManager->internalCollection()->database());
-    query.prepare(QStringLiteral(
-            "SELECT COUNT(*) FROM rekordbox_library "
-            "WHERE substr(location, 1, :length) = :prefix"));
-    const QString prefix = drive.mountPoint + QLatin1Char('/');
-    query.bindValue(QStringLiteral(":length"), prefix.size());
-    query.bindValue(QStringLiteral(":prefix"), prefix);
-    if (!query.exec() || !query.next()) {
-        return 0;
-    }
-    return query.value(0).toInt();
-}
-
 QJsonArray HarnessBridge::catalogForDrive(const mixxx::harness::Drive& drive) const {
     QJsonArray tracks;
     if (!m_pTrackCollectionManager) {
@@ -640,18 +718,31 @@ QJsonArray HarnessBridge::catalogForDrive(const mixxx::harness::Drive& drive) co
     QSqlQuery query(m_pTrackCollectionManager->internalCollection()->database());
     // rekordbox_library is the fork's mirror of every Rekordbox export on a
     // mounted drive (RekordboxFeature); it may not exist yet.
-    query.prepare(QStringLiteral(
-            "SELECT location, title, artist, genre, duration, bpm, key "
-            "FROM rekordbox_library WHERE substr(location, 1, :length) = :prefix"));
-    const QString prefix = drive.mountPoint + QLatin1Char('/');
-    query.bindValue(QStringLiteral(":length"), prefix.size());
-    query.bindValue(QStringLiteral(":prefix"), prefix);
+    const bool local = drive.mountPoint.isEmpty();
+    if (local) {
+        query.prepare(QStringLiteral(
+                "SELECT track_locations.location, library.title, library.artist, library.genre, "
+                "library.duration, library.bpm, library.key FROM library "
+                "JOIN track_locations ON library.location=track_locations.id "
+                "WHERE library.mixxx_deleted=0 AND track_locations.fs_deleted=0 "
+                "ORDER BY track_locations.location"));
+    } else {
+        query.prepare(QStringLiteral(
+                "SELECT location, title, artist, genre, duration, bpm, key "
+                "FROM rekordbox_library WHERE substr(location, 1, :length) = :prefix ORDER BY location"));
+        const QString prefix = drive.mountPoint + QLatin1Char('/');
+        query.bindValue(QStringLiteral(":length"), prefix.size());
+        query.bindValue(QStringLiteral(":prefix"), prefix);
+    }
     if (!query.exec()) {
         return tracks;
     }
-    const QList<mixxx::harness::Drive> drives{drive};
+    const QList<mixxx::harness::Drive> drives = local ? mountedDrives() : QList<mixxx::harness::Drive>{drive};
     while (query.next()) {
         const QString location = query.value(0).toString();
+        if ((local && mixxx::harness::driveForLocation(location, drives)) || !QFileInfo::exists(location)) {
+            continue;
+        }
         QJsonObject track{
                 {QStringLiteral("id"), mixxx::harness::trackIdForLocation(location, drives)},
                 {QStringLiteral("title"), query.value(1).toString()},
@@ -698,23 +789,26 @@ void HarnessBridge::syncDrives() {
     }
     m_scopeByMount = scopeByMount;
 
+    // An empty mount denotes the local Mixxx collection. Keep it out of
+    // m_scopeByMount so drive eject handling never treats it as removable.
+    scopeByMount.insert(QString(), QStringLiteral("local"));
+
     for (auto it = scopeByMount.cbegin(); it != scopeByMount.cend(); ++it) {
         const QString scope = it.value();
         const mixxx::harness::Drive drive = driveForScope(it.key(), scope);
-        // Cheap check first: this runs every poll, and a drive's catalog only
-        // changes when Rekordbox finishes (re)parsing it.
-        const int size = catalogSizeForDrive(drive);
-        if (size == 0 || m_syncedCountByScope.value(scope, -1) == size) {
+        const QJsonArray catalog = catalogForDrive(drive);
+        const QByteArray digest = QCryptographicHash::hash(
+                QJsonDocument(catalog).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
+        if (m_syncedCatalogByScope.value(scope) == digest) {
             continue;
         }
-        const QJsonArray catalog = catalogForDrive(drive);
         const int count = catalog.size();
         const QJsonObject body{
                 {QStringLiteral("scope"), scope},
                 {QStringLiteral("complete"), true},
                 {QStringLiteral("tracks"), catalog},
         };
-        m_syncedCountByScope.insert(scope, count);
+        m_syncedCatalogByScope.insert(scope, digest);
         enqueue({QStringLiteral("/api/library/sync"), body, [this, scope, count](const QJsonObject& reply) {
                      kLogger.info() << "Synced" << reply.value(QStringLiteral("synced")).toInt()
                                     << "of" << count << "tracks from drive" << scope << "("
@@ -731,7 +825,7 @@ void HarnessBridge::onMountEjected(const QString& mountPoint) {
     if (scope.isEmpty() || !m_enabled) {
         return;
     }
-    m_syncedCountByScope.remove(scope);
+    m_syncedCatalogByScope.remove(scope);
     enqueue({QStringLiteral("/api/library/unavailable"),
             QJsonObject{{QStringLiteral("scope"), scope}},
             [this](const QJsonObject&) { requestSuggestions(); }});

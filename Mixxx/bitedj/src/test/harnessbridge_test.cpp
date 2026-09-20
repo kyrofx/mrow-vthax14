@@ -11,6 +11,8 @@
 #include <QSqlQuery>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTemporaryFile>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include "control/controlobject.h"
@@ -25,6 +27,38 @@ using mixxx::track::io::key::ChromaticKey;
 namespace {
 
 constexpr int kWaitMillis = 5000;
+
+TEST(HarnessWorkerTest, EmbeddedWorkerStartsWithoutServerAndKeepsKeyPrivate) {
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    HarnessWorker worker(temporary.filePath(QStringLiteral("agent.sqlite3")));
+    QObject context;
+    QJsonObject result;
+    bool received = false;
+    auto call = [&](const QString& path, const QJsonObject& body) {
+        received = false;
+        worker.request(path, body, 5000, &context,
+                [&](const QJsonObject& reply, bool transient) {
+                    EXPECT_FALSE(transient);
+                    result = reply;
+                    received = true;
+                });
+        return QTest::qWaitFor([&] { return received; }, 6000);
+    };
+    ASSERT_TRUE(call(QStringLiteral("/health"), {}));
+    EXPECT_TRUE(result.value(QStringLiteral("ok")).toBool());
+    ASSERT_TRUE(call(QStringLiteral("/api/agent/settings"),
+            {{"api_key", "private-test-key"}, {"next_model", "test/quick"}, {"plan_model", "test/plan"}}));
+    EXPECT_TRUE(result.value(QStringLiteral("connected")).toBool());
+    EXPECT_FALSE(QJsonDocument(result).toJson().contains("private-test-key"));
+    ASSERT_TRUE(call(QStringLiteral("/api/agent/settings"), {{"disconnect", true}}));
+    EXPECT_FALSE(result.value(QStringLiteral("connected")).toBool());
+    ASSERT_TRUE(call(QStringLiteral("/api/agent"), {{"session", "native"}}));
+    EXPECT_FALSE(result.contains(QStringLiteral("error")));
+    QFile database(temporary.filePath(QStringLiteral("agent.sqlite3")));
+    ASSERT_TRUE(database.open(QIODevice::ReadOnly));
+    EXPECT_FALSE(database.readAll().contains("private-test-key"));
+}
 
 // ---- harnessids --------------------------------------------------------------
 
@@ -182,11 +216,17 @@ class HarnessBridgeTest : public LibraryTest {
     HarnessBridgeTest()
             // Library creates this in the app; the bridge follows it.
             : m_resetPlayedTracks(ConfigKey(QStringLiteral("[Library]"),
-                      QStringLiteral("reset_played_tracks"))) {
+                      QStringLiteral("reset_played_tracks"))),
+              m_crossfader(ConfigKey("[Master]", "crossfader")),
+              m_numDecks(ConfigKey("[App]", "num_decks")),
+              m_numSamplers(ConfigKey("[App]", "num_samplers")),
+              m_numPreviewDecks(ConfigKey("[App]", "num_preview_decks")) {
+        // No PlayerManager in this fixture: advertise zero audio decks so
+        // PlayerInfo's polling timer does not request nonexistent controls.
         PlayerInfo::create();
         m_harness.replies.insert(QStringLiteral("/health"), QJsonObject{{"ok", true}});
         m_harness.replies.insert(QStringLiteral("/api/play"), QJsonObject{{"play_id", 41}});
-        m_harness.replies.insert(QStringLiteral("/api/recommend"),
+        m_harness.replies.insert(QStringLiteral("/api/agent"),
                 QJsonObject{{"source", "model"},
                         {"tracks",
                                 QJsonArray{QJsonObject{{"id", "1234-ABCD:b.mp3"},
@@ -203,6 +243,7 @@ class HarnessBridgeTest : public LibraryTest {
     }
 
     void startBridge(const QString& url = QString()) {
+        config()->setValue(ConfigKey(QStringLiteral("[Harness]"), QStringLiteral("external")), true);
         config()->setValue(ConfigKey(QStringLiteral("[Harness]"), QStringLiteral("url")),
                 url.isEmpty() ? m_harness.url() : url);
         m_pBridge = std::make_unique<HarnessBridge>(config(), nullptr, nullptr);
@@ -216,15 +257,43 @@ class HarnessBridgeTest : public LibraryTest {
 
     FakeHarness m_harness;
     ControlPushButton m_resetPlayedTracks;
+    ControlObject m_crossfader;
+    ControlObject m_numDecks;
+    ControlObject m_numSamplers;
+    ControlObject m_numPreviewDecks;
     std::unique_ptr<HarnessBridge> m_pBridge;
 };
+
+TEST_F(HarnessBridgeTest, BuiltInAgentIgnoresLegacyUrlAndRecordsFeedback) {
+    config()->setValue(ConfigKey(QStringLiteral("[Harness]"), QStringLiteral("external")), false);
+    config()->setValue(ConfigKey(QStringLiteral("[Harness]"), QStringLiteral("url")),
+            QStringLiteral("http://127.0.0.1:1"));
+    m_pBridge = std::make_unique<HarnessBridge>(config(), nullptr, nullptr);
+    ASSERT_TRUE(waitFor([&] { return m_pBridge->status() == HarnessBridge::Status::Heuristic; }));
+    m_pBridge->reportPlay(play(QStringLiteral("local:/test/built-in.mp3")));
+    m_pBridge->rate(HarnessBridge::Rating::Bad);
+    ASSERT_TRUE(waitFor([&] { return !m_pBridge->agentBusy(); }));
+    QJsonObject state;
+    bool received = false;
+    m_pBridge->agentRequest(QStringLiteral("/api/state"), {}, m_pBridge.get(),
+            [&](const QJsonObject& reply) { state = reply; received = true; });
+    ASSERT_TRUE(waitFor([&] { return received; }));
+    EXPECT_FALSE(state.contains(QStringLiteral("error")));
+    EXPECT_EQ(1, state.value(QStringLiteral("plays")).toArray().size());
+    const auto feedback = state.value(QStringLiteral("feedback")).toArray();
+    ASSERT_EQ(1, feedback.size());
+    EXPECT_EQ(QStringLiteral("bad"), feedback.first().toObject().value(QStringLiteral("rating")).toString());
+    EXPECT_TRUE(m_harness.requests(QStringLiteral("/health")).isEmpty());
+}
 
 TEST_F(HarnessBridgeTest, PlayRatingAndSuggestions) {
     ASSERT_TRUE(m_harness.listen());
     startBridge();
     ASSERT_TRUE(waitFor([&] { return m_pBridge->status() == HarnessBridge::Status::Model; }));
 
-    m_pBridge->reportPlay(play(QStringLiteral("1234-ABCD:a.mp3")));
+    auto currentPlay = play(QStringLiteral("1234-ABCD:a.mp3"));
+    currentPlay.libraryBpm = 120;
+    m_pBridge->reportPlay(currentPlay);
     // Rated before the harness has acknowledged the play: it must follow it.
     m_pBridge->rate(HarnessBridge::Rating::Good);
     EXPECT_EQ(3.0, ControlObject::get(ConfigKey("[Harness]", "current_rating")));
@@ -234,6 +303,7 @@ TEST_F(HarnessBridgeTest, PlayRatingAndSuggestions) {
     ASSERT_EQ(1, plays.size());
     EXPECT_EQ(QStringLiteral("1234-ABCD:a.mp3"), plays.first().body.value("track_id").toString());
     EXPECT_EQ(124.5, plays.first().body.value("bpm").toDouble());
+    EXPECT_EQ(120.0, plays.first().body.value("track").toObject().value("bpm").toDouble());
     EXPECT_EQ(m_pBridge->session(), plays.first().body.value("session").toString());
     EXPECT_FALSE(plays.first().body.value("event_id").toString().isEmpty());
     EXPECT_EQ(QStringLiteral("Song"),
@@ -263,7 +333,7 @@ TEST_F(HarnessBridgeTest, ControlsDriveRatingsAndSkips) {
 
     m_pBridge->reportPlay(play(QStringLiteral("1234-ABCD:a.mp3")));
     // Acknowledged once the bridge asks for suggestions after it.
-    ASSERT_TRUE(waitFor([&] { return m_harness.requests("/api/recommend").size() == 2; }));
+    ASSERT_TRUE(waitFor([&] { return m_harness.requests("/api/agent").size() >= 2; }));
     ControlObject::set(ConfigKey("[Harness]", "rate_bad"), 1);
     ControlObject::set(ConfigKey("[Harness]", "rate_bad"), 0);
     ControlObject::set(ConfigKey("[Harness]", "rate_mid"), 1);
@@ -341,6 +411,71 @@ TEST_F(HarnessBridgeTest, DisabledBridgeSendsNothing) {
     EXPECT_TRUE(m_harness.requests("/health").isEmpty());
     EXPECT_TRUE(m_harness.requests("/api/play").isEmpty());
     EXPECT_EQ(HarnessBridge::Status::Offline, m_pBridge->status());
+}
+
+TEST_F(HarnessBridgeTest, SetlistActionsAndRuntimeSettingsUseCurrentSession) {
+    ASSERT_TRUE(m_harness.listen());
+    startBridge();
+    ASSERT_TRUE(waitFor([&] { return !m_pBridge->agentBusy() && m_pBridge->suggestions().size() == 1; }));
+    QJsonObject response = m_harness.replies.value(QStringLiteral("/api/agent"));
+    response.insert(QStringLiteral("plan"), QJsonObject{{"requested", 12}, {"basis", "test-basis"}});
+    m_harness.replies.insert(QStringLiteral("/api/agent"), response);
+    m_pBridge->planSet(12, QStringLiteral("up"));
+    ASSERT_TRUE(waitFor([&] { return !m_pBridge->agentBusy() && !m_pBridge->agentPlan().isEmpty(); }));
+    const auto request = m_harness.requests(QStringLiteral("/api/agent")).last().body;
+    EXPECT_EQ(QStringLiteral("generate"), request.value("action").toString());
+    EXPECT_EQ(12, request.value("count").toInt());
+    EXPECT_EQ(QStringLiteral("up"), request.value("options").toObject().value("direction").toString());
+    EXPECT_EQ(m_pBridge->session(), request.value("session").toString());
+    EXPECT_EQ(QStringLiteral("test-basis"), m_pBridge->agentPlan().value("basis").toString());
+    bool answered = false;
+    m_pBridge->agentRequest(QStringLiteral("/api/agent/settings"),
+            QJsonObject{{"disconnect", true}}, m_pBridge.get(), [&answered](const QJsonObject&) { answered = true; });
+    ASSERT_TRUE(waitFor([&] { return answered; }));
+    EXPECT_EQ(m_pBridge->session(),
+            m_harness.requests(QStringLiteral("/api/agent/settings")).last().body.value("session").toString());
+}
+
+TEST_F(HarnessBridgeTest, LocalCatalogSyncDetectsMetadataEditsAndMissingFiles) {
+    QTemporaryFile file;
+    ASSERT_TRUE(file.open());
+    QSqlQuery query(internalCollection()->database());
+    query.prepare("INSERT INTO track_locations(location,fs_deleted) VALUES (:location,0)");
+    query.bindValue(":location", file.fileName());
+    ASSERT_TRUE(query.exec());
+    const auto locationId = query.lastInsertId();
+    query.prepare("INSERT INTO library(location,title,artist,bpm,key,duration,mixxx_deleted) "
+                  "VALUES (:location,'Local song','Artist',124,'Am',180,0)");
+    query.bindValue(":location", locationId);
+    ASSERT_TRUE(query.exec());
+    ASSERT_TRUE(m_harness.listen());
+    config()->setValue(ConfigKey(QStringLiteral("[Harness]"), QStringLiteral("url")), m_harness.url());
+    config()->setValue(ConfigKey(QStringLiteral("[Harness]"), QStringLiteral("external")), true);
+    // The fixture owns the collection manager; the bridge only borrows it here.
+    auto collection = std::shared_ptr<TrackCollectionManager>(
+            trackCollectionManager(), [](TrackCollectionManager*) {});
+    m_pBridge = std::make_unique<HarnessBridge>(config(), nullptr, collection);
+    ASSERT_TRUE(waitFor([&] { return !m_harness.requests("/api/library/sync").isEmpty(); }));
+    auto body = m_harness.requests("/api/library/sync").last().body;
+    EXPECT_EQ(QStringLiteral("local"), body.value("scope").toString());
+    auto tracks = body.value("tracks").toArray();
+    ASSERT_EQ(1, tracks.size());
+    EXPECT_EQ(QStringLiteral("local:") + file.fileName(), tracks.first().toObject().value("id").toString());
+    EXPECT_EQ(QStringLiteral("8A"), tracks.first().toObject().value("camelot").toString());
+
+    ASSERT_TRUE(query.exec("UPDATE library SET bpm=128, title='Edited song'"));
+    m_pBridge->syncDrives();
+    ASSERT_TRUE(waitFor([&] { return m_harness.requests("/api/library/sync").size() >= 2; }));
+    tracks = m_harness.requests("/api/library/sync").last().body.value("tracks").toArray();
+    EXPECT_EQ(128.0, tracks.first().toObject().value("bpm").toDouble());
+    EXPECT_EQ(QStringLiteral("Edited song"), tracks.first().toObject().value("title").toString());
+
+    ASSERT_TRUE(file.remove());
+    m_pBridge->syncDrives();
+    ASSERT_TRUE(waitFor([&] { return m_harness.requests("/api/library/sync").size() >= 3; }));
+    body = m_harness.requests("/api/library/sync").last().body;
+    EXPECT_TRUE(body.value("complete").toBool());
+    EXPECT_TRUE(body.value("tracks").toArray().isEmpty());
 }
 
 } // namespace

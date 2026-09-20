@@ -19,11 +19,9 @@ export USER="${USER:-$(id -un)}"
 # The crowd buttons appear to BiteDJ as a MIDI controller, and PortMidi
 # enumerates once at startup -- so the port has to exist before the app does.
 # The unit is Type=notify, so this returns only once the port is open.
-# The harness is started too, but BiteDJ retries it, so it need not be ready.
+# Mixxx owns its built-in agent; it does not need a separate service.
 systemctl --user start mrow-buttons.service 2>/dev/null ||
     echo "bitedj-session: crowd buttons unavailable" >&2
-systemctl --user start --no-block mrow-harness.service 2>/dev/null ||
-    echo "bitedj-session: DJ harness unavailable" >&2
 
 fast_failures=0
 while true; do

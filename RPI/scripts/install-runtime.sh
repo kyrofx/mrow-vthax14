@@ -42,7 +42,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     policykit-1 mate-polkit \
     foot pcmanfm \
     lisgd wvkbd uhubctl \
-    python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 python3-libevdev \
+    python3 python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 python3-libevdev \
     bluez pipewire-alsa libspa-0.2-bluetooth \
     grim mesa-utils evtest evemu-tools \
     python3-libgpiod python3-rtmidi
@@ -130,23 +130,22 @@ for s in bitedj-session waybar-usb add-wifi bitedj-bt bitedj-bt-ui \
 done
 
 # ------------------------------------------------------------- MROW extras ---
-say "DJ harness and crowd buttons"
+say "Built-in agent and crowd buttons"
 install -d "$USER_HOME/.local/share/mrow" "$USER_HOME/.config/mrow" \
            "$USER_HOME/.config/systemd/user" "$USER_HOME/.mixxx/harness"
 # Copies rather than links: the services must survive this checkout moving.
-rm -rf "$USER_HOME/.local/share/mrow/harness" "$USER_HOME/.local/share/mrow/buttons"
-cp -r "$HERE/../../harness" "$USER_HOME/.local/share/mrow/harness"
+rm -rf "$USER_HOME/.local/share/mrow/buttons"
 cp -r "$HERE/../src/buttons" "$USER_HOME/.local/share/mrow/buttons"
 # Never overwrite a working wiring or an API key that is already in place.
 [ -f "$USER_HOME/.config/mrow/buttons.toml" ] ||
     install -m 644 "$CONFIG/home/.config/mrow/buttons.toml" "$USER_HOME/.config/mrow/buttons.toml"
-install -m 644 "$CONFIG/home/.config/systemd/user/mrow-harness.service" \
-    "$USER_HOME/.config/systemd/user/mrow-harness.service"
+# Retire the old web sidecar without deleting history or credentials.
+systemctl --user disable --now mrow-harness.service 2>/dev/null || true
 install -m 644 "$CONFIG/home/.config/systemd/user/mrow-buttons.service" \
     "$USER_HOME/.config/systemd/user/mrow-buttons.service"
 systemctl --user daemon-reload 2>/dev/null || true
-systemctl --user enable mrow-harness.service mrow-buttons.service 2>/dev/null ||
-    note "Enable the services after the next login: systemctl --user enable --now mrow-harness mrow-buttons"
+systemctl --user enable mrow-buttons.service 2>/dev/null ||
+    note "Enable the buttons after the next login: systemctl --user enable --now mrow-buttons"
 
 # The GPIO character device is owned by the 'gpio' group on Raspberry Pi OS.
 if ! id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx gpio; then
@@ -181,13 +180,9 @@ Reboot to bring the appliance up:   sudo systemctl reboot
 
 Not done automatically, because both are choices rather than defaults:
 
-  * The cloud model for song suggestions. Without it the harness still runs and
-    suggests on its own. To enable it, create ~/.config/mrow/harness.env
-    (chmod 600) with an OpenAI- or Anthropic-compatible endpoint:
-        MROW_MODEL_PROVIDER=anthropic
-        MROW_MODEL=claude-opus-5
-        MROW_MODEL_API_KEY=...
-    then: systemctl --user restart mrow-harness
+  * The cloud model. The agent starts inside Mixxx automatically. Use Assist >
+    Models for a runtime OpenRouter key, or provision ~/.config/mrow/agent.json
+    with scripts/agent-config.py during build/deploy. Local scoring needs no key.
 
   * Audio output. BiteDJ needs its device set in SETTINGS > AUDIO. If you use a
     DJ controller, edit the WirePlumber rule first so it names YOUR controller --
