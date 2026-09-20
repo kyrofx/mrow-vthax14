@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from model import ModelClient, ModelError, load_config
 from scoring import Ranker, features
+from agent import Agent
 
 # On the device, next to Mixxx's own settings (see docs/mixxx-integration-plan.md).
 DEFAULT_DATABASE = Path('~/.mixxx/harness/harness.sqlite3').expanduser()
@@ -65,6 +66,7 @@ class Harness:
             db.execute("""CREATE TABLE IF NOT EXISTS track_features (
                 track_id TEXT PRIMARY KEY REFERENCES tracks(id), source TEXT NOT NULL,
                 features TEXT NOT NULL, updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        self.agent = Agent(self)
 
     @contextmanager
     def connect(self):
@@ -379,12 +381,59 @@ class Harness:
             tracks = {r['id']: self.decode(r) for r in db.execute(TRACKS)}
         if any(t not in tracks for t in track_ids):
             raise ValueError('Export contains an unknown track')
+        if any(not tracks[t]['available'] for t in track_ids):
+            raise ValueError('Export contains a track on an unavailable drive')
         lines = ['#EXTM3U']
         for track_id in track_ids:
             t = tracks[track_id]
             label = (t['artist'] + ' - ' + t['title']).replace(chr(10), ' ').replace(chr(13), ' ')
             lines.extend([f'#EXTINF:{int(t["duration"]) if t["duration"] else -1},{label}', t['path']])
         return {'filename': 'mrow-setlist.m3u', 'content': '\n'.join(lines) + '\n'}
+
+
+def dispatch(harness, path, data):
+    """Shared commands for the built-in Mixxx worker and optional dev HTTP UI."""
+    if not isinstance(data, dict):
+        raise ValueError('Request must be a JSON object')
+    session = data.get('session', 'default')
+    if path == '/health':
+        return {'ok': True}
+    if path == '/api/library':
+        return harness.import_library(data.get('tracks'))
+    if path == '/api/state':
+        return harness.state(session)
+    if path == '/api/play':
+        if data.get('track') is not None:
+            harness.upsert_played_track(data.get('scope'), data['track'], data.get('bpm'))
+        return harness.record_play(data.get('track_id'), session, data.get('bpm'), data.get('event_id'))
+    if path == '/api/feedback':
+        return harness.rate(data.get('track_id'), session, data.get('rating'), data.get('play_id'))
+    if path == '/api/recommend':
+        return harness.suggest(session, data.get('count', 5), data.get('options'), data.get('model', True) is not False)
+    if path == '/api/library/sync':
+        return harness.sync_library(data.get('scope'), data.get('tracks'), data.get('complete', False))
+    if path == '/api/library/unavailable':
+        return harness.set_unavailable(data.get('scope'))
+    if path == '/api/features':
+        return harness.store_features(data.get('tracks'))
+    if path == '/api/status':
+        return harness.status()
+    if path == '/api/agent/settings':
+        return harness.agent.configure(data) if any(
+            k in data for k in ('api_key', 'next_model', 'plan_model', 'disconnect')) else harness.agent.settings()
+    if path == '/api/agent/models':
+        return harness.agent.models()
+    if path == '/api/agent/view':
+        return harness.agent.view(session)
+    if path == '/api/agent/export':
+        return harness.agent.export(session, data.get('basis'))
+    if path == '/api/agent':
+        return harness.agent.run(session, data)
+    if path == '/api/setlist':
+        return harness.setlist(session, data.get('count', 10), data.get('options'))
+    if path == '/api/export':
+        return harness.export(data.get('track_ids'))
+    raise LookupError('Not found')
 
 
 def make_handler(harness):
@@ -414,6 +463,11 @@ def make_handler(harness):
             if origin and urlparse(origin).netloc != self.headers.get('Host'):
                 self.send(403, {'error': 'Cross-origin requests are disabled'})
                 return
+            if self.path.startswith('/api/agent'):
+                host = urlparse('http://' + self.headers.get('Host', '')).hostname
+                if self.client_address[0] not in ('127.0.0.1', '::1') or host not in ('127.0.0.1', 'localhost', '::1'):
+                    self.send(403, {'error': 'Agent controls are available on localhost only'})
+                    return
             try:
                 length = int(self.headers.get('Content-Length', '0'))
                 if not 0 < length <= 5_000_000:
@@ -423,38 +477,9 @@ def make_handler(harness):
                 data = json.loads(self.rfile.read(length))
                 if not isinstance(data, dict):
                     raise ValueError('Request must be a JSON object')
-                session = data.get('session', 'default')
-                if self.path == '/api/library':
-                    result = harness.import_library(data.get('tracks'))
-                elif self.path == '/api/state':
-                    result = harness.state(session)
-                elif self.path == '/api/play':
-                    if data.get('track') is not None:
-                        # Mixxx sends the track with its play, so a file from a
-                        # drive without a synced catalog can still be recorded.
-                        harness.upsert_played_track(data.get('scope'), data['track'], data.get('bpm'))
-                    result = harness.record_play(data.get('track_id'), session, data.get('bpm'), data.get('event_id'))
-                elif self.path == '/api/feedback':
-                    result = harness.rate(data.get('track_id'), session, data.get('rating'), data.get('play_id'))
-                elif self.path == '/api/recommend':
-                    result = harness.suggest(session, data.get('count', 5), data.get('options'),
-                                             data.get('model', True) is not False)
-                elif self.path == '/api/library/sync':
-                    result = harness.sync_library(data.get('scope'), data.get('tracks'), data.get('complete', False))
-                elif self.path == '/api/library/unavailable':
-                    result = harness.set_unavailable(data.get('scope'))
-                elif self.path == '/api/features':
-                    result = harness.store_features(data.get('tracks'))
-                elif self.path == '/api/status':
-                    result = harness.status()
-                elif self.path == '/api/setlist':
-                    result = harness.setlist(session, data.get('count', 10), data.get('options'))
-                elif self.path == '/api/export':
-                    result = harness.export(data.get('track_ids'))
-                else:
-                    self.send(404, {'error': 'Not found'})
-                    return
-                self.send(200, result)
+                self.send(200, dispatch(harness, self.path, data))
+            except LookupError:
+                self.send(404, {'error': 'Not found'})
             except (ValueError, TypeError, sqlite3.IntegrityError) as error:
                 self.send(400, {'error': str(error)})
     return Handler

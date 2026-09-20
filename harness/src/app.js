@@ -1,6 +1,8 @@
 let state = {tracks: [], plays: [], feedback: []}, setlist = [], busy = false, revision = null;
 let pendingPlay = null;
+let planBasis = null;
 const $ = id => document.getElementById(id);
+$('session').value = new URLSearchParams(location.search).get('session') || 'default';
 const session = () => $('session').value.trim();
 const options = () => ({direction: $('direction').value, max_bpm_delta: Number($('maxDelta').value),
   target_bpm: $('targetBpm').value === '' ? null : Number($('targetBpm').value),
@@ -20,6 +22,7 @@ async function api(route, data = {}) {
 async function action(fn) {
   if (busy) return;
   busy = true;
+  message('Working…');
   document.querySelectorAll('button,input,select').forEach(b => b.disabled = true);
   try { await fn(); }
   catch (error) { message(error.message, true); }
@@ -53,6 +56,10 @@ function explanation(track) {
   }
   const note = document.createElement('p');
   note.textContent = 'Ranking score, not a probability. Contributions sum to the score. Beat/phrase alignment is not inferred.';
+  if (track.model_reason) {
+    const reason = document.createElement('p'); reason.textContent = track.model_reason;
+    details.append(reason);
+  }
   details.append(summary, text, table, note); return details;
 }
 async function record(track) {
@@ -70,9 +77,9 @@ async function record(track) {
 }
 async function refresh(onlyChanged = false) {
   const next = await api('state');
-  const nextRevision = JSON.stringify(next);
-  if (onlyChanged && nextRevision === revision) return;
-  if (revision !== null && nextRevision !== revision) clearSetlist();
+  const view = await api('agent/view');
+  const nextRevision = JSON.stringify([next, view]);
+  if (onlyChanged && nextRevision === revision) { message('Ready.'); return; }
   revision = nextRevision; state = next;
   const byId = Object.fromEntries(state.tracks.map(t => [t.id, t]));
   const current = state.plays.at(-1);
@@ -89,7 +96,12 @@ async function refresh(onlyChanged = false) {
     }
   }
   $('picks').replaceChildren();
-  const picks = await api('recommend', {options: options()});
+  // Active plans belong to the session, including plans made inside Mixxx.
+  const picks = await api('agent', view.plan ? {} : {count: 5, options: options()});
+  renderPlan(picks.plan);
+  $('agentNote').textContent = (picks.source === 'model' ? `Model · ${picks.model}` : 'Local scoring') +
+    ' · ' + picks.summary + (picks.model_error ? ' ' + picks.model_error : '');
+  $('modelState').textContent = view.settings.connected ? view.settings.next_model : 'Local mode';
   if (!picks.tracks.length) $('picks').textContent = state.tracks.length ?
     'No eligible songs match these constraints. Adjust the controls, start another session, or add tracks.' : 'Import a library to get started.';
   for (const track of picks.tracks) {
@@ -113,36 +125,80 @@ async function refresh(onlyChanged = false) {
     const p = document.createElement('p');
     p.textContent = label(byId[play.track_id]) + ' · ' + play.created + ' UTC'; $('history').append(p);
   }
+  message('Ready. Crowd ratings update the upcoming plan.');
 }
-$('refresh').onclick = () => action(refresh);
+$('refresh').onclick = () => action(async () => { await api('agent', {retry: true, count: 5}); await refresh(); });
 $('session').onchange = () => action(async () => { clearSetlist(); await refresh(); message('Session loaded.'); });
 for (const id of ['direction', 'maxDelta', 'targetBpm', 'halfDouble', 'harmonic']) {
-  $(id).onchange = () => action(async () => { clearSetlist(); await refresh(); message('Scoring controls applied.'); });
+  $(id).onchange = () => action(async () => {
+    await api('agent', {action: setlist.length ? 'adjust' : 'next', options: options(), count: Number($('count').value)});
+    await refresh(); message('Scoring controls applied.');
+  });
 }
-$('count').onchange = clearSetlist;
 $('import').onchange = () => action(async () => {
   const file = $('import').files[0]; if (!file) return;
   const result = await api('library', {tracks: JSON.parse(await file.text())});
   clearSetlist(); await refresh(); message(`Imported ${result.imported} tracks.`); $('import').value = '';
 });
-$('generate').onclick = () => action(async () => {
+function renderPlan(plan) {
   clearSetlist();
-  const result = await api('setlist', {count: Number($('count').value), options: options()});
-  setlist = result.tracks;
+  planBasis = plan?.basis || null;
+  if (!plan) return;
+  setlist = plan.tracks;
+  $('direction').value = plan.options.direction;
+  $('maxDelta').value = plan.options.max_bpm_delta;
+  $('targetBpm').value = plan.options.target_bpm ?? '';
+  $('halfDouble').checked = plan.options.allow_half_double;
+  $('harmonic').checked = plan.options.harmonic_only;
+  $('count').value = plan.requested;
   for (const track of setlist) {
     const li = document.createElement('li'), title = document.createElement('p');
     title.textContent = label(track); li.append(title, explanation(track)); $('setlist').append(li);
   }
-  $('setlistNote').textContent = `${result.returned} of ${result.requested} songs. ${result.notes.join(' ')} Generating does not record plays.`;
-});
-$('export').onclick = () => action(async () => {
-  // Refresh before exporting so external playback/feedback cannot leave a stale plan.
+  $('setlistNote').textContent = `${plan.returned} of ${plan.requested} upcoming songs. ${plan.summary} ${plan.notes.join(' ')} ` +
+    (plan.model_error || '') + ' Updated after plays and crowd feedback. Playback stays under your control.';
+}
+async function plan(direction) {
+  if (direction) $('direction').value = direction;
+  await api('agent', {action: 'generate', count: Number($('count').value), options: options()});
   await refresh();
-  if (!setlist.length) { message('History or library changed. Generate a fresh setlist.'); return; }
-  const result = await api('export', {track_ids: setlist.map(t => t.id)});
+}
+$('generate').onclick = () => action(() => plan());
+for (const [id, direction] of Object.entries({adjust: 'auto', build: 'up', hold: 'steady', ease: 'down'})) {
+  $(id).onclick = () => action(() => plan(direction));
+}
+$('clearPlan').onclick = () => action(async () => { await api('agent', {action: 'clear'}); await refresh(); });
+$('export').onclick = () => action(async () => {
+  const result = await api('agent/export', {basis: planBasis});
   const url = URL.createObjectURL(new Blob([result.content], {type: 'audio/x-mpegurl'}));
   const a = document.createElement('a'); a.href = url; a.download = result.filename; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000); message('Setlist exported.');
 });
-action(refresh);
+$('models').onclick = () => action(async () => {
+  const result = await api('agent/models');
+  $('modelCatalog').replaceChildren();
+  for (const model of result.models) {
+    const option = document.createElement('option'); option.value = model.id; option.label = model.name;
+    $('modelCatalog').append(option);
+  }
+  $('modelNote').textContent = `${result.models.length} models loaded. Select or type a model ID. Pricing varies by model.`;
+  message('Model catalog loaded.');
+});
+$('connect').onclick = () => action(async () => {
+  const key = $('apiKey').value; $('apiKey').value = '';
+  await api('agent/settings', {api_key: key, next_model: $('nextModel').value, plan_model: $('planModel').value});
+  await refresh(); message('Models applied. See advice status for connection results.');
+});
+$('disconnect').onclick = () => action(async () => {
+  $('apiKey').value = '';
+  await api('agent/settings', {disconnect: true}); await refresh(); message('Disconnected. Local scoring is active.');
+});
+action(async () => {
+  const config = await api('agent/settings');
+  if (config.connected) {
+    $('nextModel').value = config.next_model; $('planModel').value = config.plan_model;
+    $('apiKey').placeholder = 'Leave blank to keep runtime key';
+  }
+  await refresh();
+});
 setInterval(() => { if (!busy && !document.hidden && !['INPUT', 'SELECT'].includes(document.activeElement.tagName)) action(() => refresh(true)); }, 5000);

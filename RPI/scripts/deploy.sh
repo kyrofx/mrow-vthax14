@@ -5,7 +5,7 @@
 # device), stages a stripped install tree, and copies it over ssh:
 #
 #   binary + resources   /usr/local/bin/mixxx, /usr/local/share/mixxx
-#   DJ harness           ~/.local/share/mrow/harness
+#   DJ agent             embedded in the Mixxx binary (private worker, no server)
 #   crowd buttons        ~/.local/share/mrow/buttons
 #   user services        ~/.config/systemd/user
 #
@@ -23,6 +23,7 @@
 #   ./deploy.sh --only harness      # mixxx | harness | buttons | all (default)
 #   ./deploy.sh --restart           # restart BiteDJ when done (interrupts audio)
 #   ./deploy.sh --dry-run           # print what it would do
+#   ./deploy.sh --agent-config FILE # provision an owner-only JSON key/model file
 #
 # Deploying does NOT restart BiteDJ by default: the running set matters more
 # than the new build. The device picks it up at the next restart.
@@ -35,6 +36,7 @@ ONLY=all
 RESTART=0
 DRY_RUN=0
 USER_INSTALL=0
+AGENT_CONFIG=
 # Set once the binary is in place, so the library check tests the right one.
 INSTALLED_BIN=/usr/local/bin/mixxx
 # Two spellings of the same directory. rsync 3.4 protects its arguments, so a
@@ -60,6 +62,7 @@ while [ $# -gt 0 ]; do
         --user) USER_INSTALL=1; shift ;;
         --restart) RESTART=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --agent-config) AGENT_CONFIG="${2:?--agent-config needs a path}"; shift 2 ;;
         -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option: $1 (try --help)" ;;
     esac
@@ -69,6 +72,13 @@ case "$ONLY" in
     all|mixxx|harness|buttons) ;;
     *) die "--only must be all, mixxx, harness, or buttons" ;;
 esac
+if [ "$ONLY" = harness ]; then
+    note "The agent is now embedded in Mixxx; rebuilding/deploying Mixxx."
+    ONLY=mixxx
+fi
+if [ -n "$AGENT_CONFIG" ]; then
+    python3 "$HERE/agent-config.py" --validate "$AGENT_CONFIG"
+fi
 
 # Everything that touches the device goes through these two, so --dry-run is
 # honest about what would happen.
@@ -127,9 +137,7 @@ run_remote "mkdir -p $STAGING"
 if [ "$ONLY" = all ] || [ "$ONLY" = mixxx ]; then
     copy_to_staging "$FORK/install/bin/mixxx" mixxx
     copy_to_staging "$FORK/install/share/mixxx/" share-mixxx/
-fi
-if [ "$ONLY" = all ] || [ "$ONLY" = harness ]; then
-    copy_to_staging "$REPO/harness/" harness/
+    copy_to_staging "$REPO/RPI/scripts/bitedj-session" bitedj-session
 fi
 if [ "$ONLY" = all ] || [ "$ONLY" = buttons ]; then
     copy_to_staging "$REPO/RPI/src/buttons/" buttons/
@@ -137,7 +145,6 @@ fi
 if [ "$ONLY" = all ]; then
     copy_to_staging "$REPO/RPI/config/home/.config/systemd/user/" systemd-user/
     copy_to_staging "$REPO/RPI/config/home/.config/mrow/" mrow-config/
-    copy_to_staging "$REPO/RPI/scripts/bitedj-session" bitedj-session
 fi
 
 # --------------------------------------------------------------- install -----
@@ -174,11 +181,25 @@ if [ "$ONLY" = all ] || [ "$ONLY" = mixxx ]; then
         echo 'MISSING LIBRARIES: install them with the list in install/apt-packages.txt' || true"
 fi
 
-if [ "$ONLY" = all ] || [ "$ONLY" = harness ]; then
-    say "Installing the DJ harness on $HOST"
+if [ "$ONLY" = all ] || [ "$ONLY" = mixxx ]; then
+    run_remote "python3 -c 'import sys; assert sys.version_info >= (3,9)'"
+    run_remote "systemctl --user disable --now mrow-harness.service 2>/dev/null || true"
     run_remote "set -e
-        mkdir -p \$HOME/.local/share/mrow \$HOME/.mixxx/harness
-        rsync -a --delete $STAGING/harness/ \$HOME/.local/share/mrow/harness/"
+        mkdir -p \$HOME/.local/bin
+        install -m 755 $STAGING/bitedj-session \$HOME/.local/bin/bitedj-session
+        sed -i \"s#^BIN=.*#BIN=$INSTALLED_BIN#\" \$HOME/.local/bin/bitedj-session"
+fi
+
+# Stream through SSH, not arguments, environment, staging trees or build layers.
+if [ -n "$AGENT_CONFIG" ]; then
+    say "Provisioning private agent configuration"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        note "Install protected agent.json over SSH (contents never displayed)."
+    else
+        copy_to_staging "$HERE/agent-config.py" agent-config.py
+        python3 "$HERE/agent-config.py" --emit "$AGENT_CONFIG" |
+            ssh "$HOST" "python3 $STAGING/agent-config.py --receive"
+    fi
 fi
 
 if [ "$ONLY" = all ] || [ "$ONLY" = buttons ]; then
@@ -208,13 +229,10 @@ if [ "$ONLY" = all ]; then
         install -m 644 $STAGING/systemd-user/*.service \$HOME/.config/systemd/user/
         [ -f \$HOME/.config/mrow/buttons.toml ] ||
             install -m 644 $STAGING/mrow-config/buttons.toml \$HOME/.config/mrow/buttons.toml
-        install -m 755 $STAGING/bitedj-session \$HOME/.local/bin/bitedj-session
-        sed -i \"s#^BIN=.*#BIN=$INSTALLED_BIN#\" \$HOME/.local/bin/bitedj-session
         systemctl --user daemon-reload
-        systemctl --user enable mrow-harness.service mrow-buttons.service
-        systemctl --user restart mrow-harness.service
+        systemctl --user enable mrow-buttons.service
         systemctl --user restart mrow-buttons.service || true
-        systemctl --user --no-pager --lines=0 status mrow-harness.service mrow-buttons.service || true"
+        systemctl --user --no-pager --lines=0 status mrow-buttons.service || true"
 fi
 
 # --------------------------------------------------------------- restart -----

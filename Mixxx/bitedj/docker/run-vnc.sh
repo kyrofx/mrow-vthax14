@@ -12,15 +12,7 @@ if [ ! -x "$BINARY" ]; then
     exit 1
 fi
 
-# The MROW DJ harness, when this checkout sits inside the MROW repository
-# (compose mounts it at /harness). Without it the Assist tab just reports the
-# assistant offline, which is a valid state to look at too.
-HARNESS=/harness/src/harness.py
-if [ -x "$(command -v python3)" ] && [ -f "$HARNESS" ]; then
-    python3 "$HARNESS" --host 127.0.0.1 --port 8765 \
-        --database /tmp/mrow-harness.sqlite3 >/tmp/harness.log 2>&1 &
-    echo "harness: http://127.0.0.1:8765 (log /tmp/harness.log)"
-fi
+# The built-in agent starts with Mixxx; no web server or source mount is needed.
 
 export DISPLAY=:99
 export QT_QPA_PLATFORM=xcb

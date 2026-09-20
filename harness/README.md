@@ -1,9 +1,126 @@
 # MROW DJ harness
 
-A local DJ assistant intended for Raspberry Pi 4 and 5. Requires Python 3.9+;
-no third-party Python packages, cloud account, or model download.
+A local DJ assistant for Raspberry Pi 4 and 5, also runnable on macOS.
+Requires Python 3.9+ and no third-party Python packages. OpenRouter is optional;
+local ranking and planning keep working without a key or network.
 
-## Run
+## Agent workflow in Mixxx / BiteDJ
+
+1. Start the rebuilt Mixxx fork on the Pi and open **Assist**. The bundled agent
+   starts automatically, using private process pipes rather than a web server.
+2. Open **Models**, paste an OpenRouter key and choose a next-song model and a
+   setlist model. **Load models** reads the current catalog; model IDs can also
+   be typed directly. **Apply** starts using the choices immediately.
+3. Import/scan a Rekordbox USB export in Mixxx, or add analyzed local songs to
+   Mixxx's collection. The bridge syncs both, including BPM, key and genre.
+   Missing files and tracks without BPM are excluded. Ejecting a drive removes
+   it from consideration while preserving its feedback history.
+4. Use **Setlist**, choose a song count, and tap **Follow crowd**, **Build**,
+   **Hold**, or **Ease down**. These create a rolling plan of upcoming songs.
+   **Good / Mid / Bad** rate the audible play and update that plan automatically.
+5. Review the reasons and use **Load 1 / Load 2** yourself. A playing deck cannot
+   be replaced. **Export M3U** saves a playlist; **New set** starts fresh session
+   exclusions while retaining learned history.
+
+The native panel is the appliance interface. No browser or separately launched
+service is required. The Python sources in this directory are embedded in the
+Mixxx executable at build time. The optional standalone web tool below is for
+development; it has a separate process and separate runtime credentials.
+
+Runtime keys live only in the harness process: never in SQLite, Mixxx settings,
+browser storage, or API replies. Restarting requires reentry unless a private
+install-time config was provisioned. **Disconnect** clears the active key for
+this run; a provisioned file reloads at the next restart. Applying settings
+does not itself verify a credential; advice status reports model success or
+the local fallback and error. Requests can incur OpenRouter charges. Agent
+controls in the optional HTTP developer tool accept localhost clients only.
+
+## Optional build/deploy provisioning
+
+Prepare the key with a hidden prompt on the build workstation, outside the repo:
+
+```sh
+python3 RPI/scripts/agent-config.py
+RPI/scripts/deploy.sh --agent-config "$HOME/.config/mrow-build/agent.json"
+```
+
+The first command prompts for an OpenRouter key and separate next-song/setlist
+model IDs (`openrouter/auto` is the default). The second builds and deploys Mixxx,
+then streams the JSON through SSH to `~/.config/mrow/agent.json` on the Pi.
+No secret enters compiler arguments, binary resources, container layers, shell
+history or deployment staging. Without `--agent-config`, existing credentials
+are untouched. `--dry-run` validates the file but never transmits it.
+
+The file has mode `600`, its directory `700`, and belongs to the appliance user.
+Mixxx loads it automatically when its worker starts. Group/world-readable files,
+symlinks, other owners and invalid fields are rejected; local scoring still works
+and **Models** explains the error. JSON fields are `api_key`, `next_model`,
+`plan_model`. On a Pi built locally, prepare it directly with:
+
+```sh
+python3 RPI/scripts/agent-config.py --output "$HOME/.config/mrow/agent.json"
+```
+
+The prompt refuses to overwrite an existing file. Runtime changes in **Models**
+do not modify the provisioned file. To permanently disable provisioned cloud
+access, remove that file on the Pi, then disconnect in Mixxx or restart it.
+
+This is permission-protected provisioning, not encryption at rest. The appliance
+user, root, or someone reading an unencrypted SD card can recover the key. Use a
+dedicated spending-limited OpenRouter key and revoke it if the device is lost.
+Compiling a secret into a binary would not protect it. Provisioning opts into
+cloud advice as library/play/feedback context changes; model use can incur costs.
+
+## How the agent chooses
+
+The local scorer retrieves a feasible path and alternatives at every step, up
+to 120 candidates. The model sees aliases, music metadata, actual performance
+BPM, recent ratings, aggregate genre feedback and the previous plan. The next
+model ranks immediate alternatives; the setlist model orders a coherent sequence
+and explains the choices. Once a plan is active, Up next shows its upcoming order.
+
+Every model choice is checked against the available library and every planned
+transition against the tempo/key policy. Invented IDs and duplicates are ignored;
+missing or incompatible choices are filled locally. A model path that dead-ends
+earlier than the local plan is rejected. Unanalyzed musical features stay unknown.
+This does not infer beat/phrase alignment or automatically hear the crowd.
+
+Plans persist per session. Plays, skips, ratings, library edits, drive availability
+and model changes invalidate the plan. A response that arrives after the live
+context changes is discarded and replaced by a fresh local result. Unchanged
+polls reuse results, and concurrent refreshes coalesce; **Refresh advice** / native
+**Refresh** explicitly retries the model, including after a network failure.
+Export rejects stale plans. Runtime OpenRouter calls time out after 25 seconds,
+with the existing local scorer as fallback.
+
+## Pi operation and troubleshooting
+
+- **No songs suggested:** confirm the Rekordbox export is mounted and visible in
+  Mixxx, or the songs are in Mixxx's local collection. Files must exist and have
+  analyzed BPM. Allow up to 15 seconds for library sync. A plan may be shorter
+  than requested when songs are played/skipped or transition constraints rule
+  them out; **New set** resets session exclusions, not learned history.
+- **Local advice instead of model advice:** local mode is expected without a
+  key or network. Open **Models** to check configuration, then **Refresh** to
+  retry. Applying a key alone does not prove authentication or model availability.
+- **Agent fails to start:** check `python3 --version` on the Pi (3.9+ required).
+  Rebuild from the full MROW checkout so the Python sources are embedded. Do not
+  start the old HTTP service to repair a bundled-worker failure.
+- **Provisioned configuration rejected:** run
+  `python3 RPI/scripts/agent-config.py --validate "$HOME/.config/mrow/agent.json"`
+  as the appliance user from a source checkout. Check ownership and mode `600`;
+  the file must not be a symlink. Never paste its contents into issue reports.
+- **Settings revert on restart:** runtime changes intentionally stay in memory.
+  Re-provision the private file to persist a new key/model selection. An install
+  does not restart Mixxx unless `--restart` is requested; restarting stops audio.
+
+History, feedback and saved plans live under the Mixxx settings directory in
+`harness/harness.sqlite3`. Back up that directory with Mixxx closed. Credentials
+are separate in `~/.config/mrow/agent.json`; protect or omit them from backups.
+The agent never auto-plays or replaces a playing deck. Cloud processing sends
+song metadata and crowd assessments, not audio files or local filesystem paths.
+
+## Standalone developer tool (not required on the Pi)
 
 From the repository root:
 
@@ -17,11 +134,9 @@ settings. Use `--database /path/to/file.sqlite3` (or `MROW_HARNESS_DB`) to
 select another location. Stop with Ctrl+C. If Musicsearch is already running
 on port 8765, use `--port 8766` and open that port instead.
 
-On the appliance this runs as a systemd user service beside BiteDJ; see
-[RPI/README.md](../RPI/README.md). The web page stays available there as a
-debug view — the DJ uses the Assist tab in BiteDJ.
-
-On the Pi, use Raspberry Pi OS with Python 3.9+ and open the page in its browser.
+Do not run this alongside Mixxx against the same database. The appliance instead
+owns an embedded worker with state in its settings directory, under `harness/`.
+The installer retires the old `mrow-harness` service without deleting its history.
 The default server accepts local connections only. `--host 0.0.0.0` allows devices
 on a trusted LAN; this prototype has no authentication, so anyone who can reach
 it can record plays and feedback.
@@ -55,7 +170,7 @@ database, call providers, scan audio, estimate BPM, or verify file availability.
 
 ## Recommendations
 
-The initial agent is an explainable ranking algorithm, not a language model.
+The offline foundation is an explainable ranking algorithm.
 It combines performance/historical tempo, Camelot compatibility, energy direction,
 model-compatible timbre vectors, genre overlap, intro/outro fit, annotated vocal
 overlap, historical transition probabilities, smoothed/recency-weighted feedback,
@@ -83,18 +198,19 @@ No beat/phrase alignment or audio quality is inferred from missing annotations.
 
 Feedback is one operator assessment per play, not automatic crowd sensing or
 multi-voter polling. Repeated presses replace the assessment. Suggestion skips
-exclude a track for that session but do not imply a global dislike. The panel
-polls every five seconds for external API events and invalidates stale setlists.
+exclude a track for that session but do not imply a global dislike. The web panel
+polls every five seconds for external API events and refreshes the shared plan.
 
-## The cloud model
+## Legacy developer-server environment configuration
 
 Optional. Without one the harness ranks on its own, which is also what happens
 whenever the model cannot be reached — expected on a WiFi-only box that moves
 between venues. The model never introduces a track: it reorders the candidates
 the ranking already allowed and explains its picks, under a timeout.
 
-Configure it in `~/.config/mrow/harness.env` (mode 600, never committed), or in
-the environment. Any OpenAI- or Anthropic-compatible endpoint works:
+This applies only to the standalone developer server, not the embedded Mixxx
+worker. Supply settings in the developer server's environment.
+OpenRouter and OpenAI- or Anthropic-compatible endpoints work:
 
 ```sh
 MROW_MODEL_PROVIDER=anthropic     # or: openai

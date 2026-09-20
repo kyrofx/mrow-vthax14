@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAtomicPointer>
+#include <QByteArray>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -15,6 +16,7 @@
 #include <vector>
 
 #include "harness/harnessids.h"
+#include "harness/harnessworker.h"
 #include "preferences/usersettings.h"
 #include "track/track_decl.h"
 
@@ -24,13 +26,12 @@ class QNetworkReply;
 class PlayerManager;
 class TrackCollectionManager;
 
-/// Bite DJ: connects Mixxx to the MROW DJ harness, a sidecar process on the
-/// same unit (harness/ in the MROW repository) that keeps play history and the
+/// Bite DJ: owns the bundled MROW agent worker, which keeps play history and the
 /// DJ's crowd ratings in ~/.mixxx/harness/ and suggests what to play next,
 /// optionally refined by a cloud model.
 ///
-/// Everything here runs on the GUI thread and talks to the harness over
-/// localhost HTTP without blocking: nothing about audio waits on it, and the
+/// The GUI talks asynchronously over private process pipes (no web server).
+/// Nothing about audio waits on it, and the
 /// harness being down (or the model being unreachable) degrades the Assist
 /// panel, never the set.
 ///
@@ -100,6 +101,7 @@ class HarnessBridge : public QObject {
         QString key;
         QString location;
         QString group;
+        double libraryBpm = 0;
         double bpm = 0;
         double durationSeconds = 0;
     };
@@ -144,6 +146,13 @@ class HarnessBridge : public QObject {
     /// the track's drive is not mounted.
     void loadSuggestion(int index, int deckNumber);
     void refreshSuggestions();
+    /// Shared rolling setlist and runtime model controls for the native panel.
+    QJsonObject agentPlan() const { return m_agentPlan; }
+    bool agentBusy() const { return m_suggestionsInFlight || m_requestInFlight || !m_queue.isEmpty(); }
+    void planSet(int count, const QString& direction, bool clear = false);
+    void loadPlanTrack(int index, int deckNumber);
+    void agentRequest(const QString& path, const QJsonObject& body, QObject* context,
+            std::function<void(const QJsonObject&)> callback);
     /// Start a new set: new session name, empty "played" list in the harness.
     void startNewSession();
 
@@ -188,15 +197,15 @@ class HarnessBridge : public QObject {
     void scheduleRetry(const QString& reason);
     void probeHealth();
     void requestSuggestions();
+    void loadTrack(const Suggestion& suggestion, int deckNumber);
     QNetworkReply* post(const QString& path, const QJsonObject& body, int timeoutMillis);
+    void call(const QString& path, const QJsonObject& body, int timeoutMillis,
+            QObject* context, HarnessWorker::Callback callback);
 
     void sendRating();
     void setStatus(Status status, const QString& detail);
     void setCurrentRating(Rating rating);
     QList<mixxx::harness::Drive> mountedDrives() const;
-    /// Tracks of the drive's Rekordbox export mirrored in the library; 0 when
-    /// it has none (or the table does not exist yet).
-    int catalogSizeForDrive(const mixxx::harness::Drive& drive) const;
     /// The drive's catalog as the harness sync expects it.
     QJsonArray catalogForDrive(const mixxx::harness::Drive& drive) const;
     void publish(const QString& message, bool warning) const;
@@ -210,11 +219,14 @@ class HarnessBridge : public QObject {
     bool m_enabled;
     QUrl m_baseUrl;
     QNetworkAccessManager m_network;
+    std::unique_ptr<HarnessWorker> m_worker;
 
     QString m_session;
     Status m_status;
     QString m_statusDetail;
     QList<Suggestion> m_suggestions;
+    QJsonObject m_agentPlan;
+    QJsonObject m_agentAction;
     CurrentPlay m_current;
     /// Locations of the most recent distinct plays, newest first. A track
     /// replayed within this window is not a new play (matches SetlogFeature).
@@ -231,8 +243,8 @@ class HarnessBridge : public QObject {
     /// Scope of each mounted drive, by mount point: an ejected drive can no
     /// longer be asked for its UUID, so it is remembered here.
     QHash<QString, QString> m_scopeByMount;
-    /// Catalog size last synced per scope, so an unchanged drive is not resent.
-    QHash<QString, int> m_syncedCountByScope;
+    /// Content fingerprint last synced per scope, including analyzed metadata.
+    QHash<QString, QByteArray> m_syncedCatalogByScope;
 
     std::vector<std::unique_ptr<ControlObject>> m_controls;
     ControlObject* m_pCoStatus;

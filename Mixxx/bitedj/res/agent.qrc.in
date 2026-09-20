@@ -1,0 +1,9 @@
+<RCC>
+  <qresource prefix="/agent">
+    <file alias="worker.py">@BITEDJ_AGENT_SOURCE_DIR@/worker.py</file>
+    <file alias="harness.py">@BITEDJ_AGENT_SOURCE_DIR@/harness.py</file>
+    <file alias="agent.py">@BITEDJ_AGENT_SOURCE_DIR@/agent.py</file>
+    <file alias="model.py">@BITEDJ_AGENT_SOURCE_DIR@/model.py</file>
+    <file alias="scoring.py">@BITEDJ_AGENT_SOURCE_DIR@/scoring.py</file>
+  </qresource>
+</RCC>

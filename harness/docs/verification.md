@@ -1,5 +1,71 @@
 # Verification record
 
+## Embedded Pi agent and provisioning — 2026-09-19
+
+To repeat the automated checks from the repository root:
+
+```sh
+python3 -m unittest discover -s harness/tests -v
+python3 -m unittest discover -s RPI/tests -v
+git diff --check
+```
+
+After configuring the arm64 build with `BUILD_TESTING=ON`, from `Mixxx/bitedj`:
+
+```sh
+docker compose run --rm pi cmake --build build --target mixxx mixxx-test --parallel 6
+docker compose run --rm pi ./build/mixxx-test '--gtest_filter=Harness*' --gtest_color=no
+```
+
+- Rebuilt both `mixxx` and `mixxx-test` in the Debian trixie arm64 container.
+- **64 Python agent tests, 10 GPIO tests and 14 native `Harness*` tests passed.**
+  New tests cover private JSONL IPC, a real worker subprocess, concurrent feedback
+  during slow advice, optional startup credentials, ownership/mode checks,
+  symlink rejection, atomic no-overwrite/replacement, secret redaction and local
+  fallback after rejected configuration. The native bridge also records real
+  play/feedback through its bundled worker while ignoring a stale HTTP URL.
+- The native worker test also passed with only the build volume mounted in a
+  fresh container: no `/src`, `/harness`, standalone HTTP server or source tree.
+- Shell syntax, deployment dry run and `git diff --check` passed. The old
+  `mrow-harness` startup unit has been removed from the shipped configuration;
+  deployment scripts disable installed copies while retaining history.
+- No real key was provisioned and no Pi deployment or hardware/UI/audio test
+  was performed for this change. The earlier device records below concern the
+  previous HTTP integration, not the embedded worker.
+
+## Agent branch — 2026-09-19
+
+- Python harness: **55 tests passed**. New coverage checks separate next/plan
+  models, key lifetime and redaction, private path aliases, model-output
+  validation, per-edge constraints, persisted plans, feedback/play/skip/eject
+  invalidation, stale in-flight responses, concurrent request coalescing, stale
+  export rejection, localhost/origin guards and the HTTP agent workflow.
+- GPIO integration: **10 tests passed**.
+- Both `mixxx` and `mixxx-test` built in the Debian trixie arm64 Pi container.
+  All **12 targeted `Harness*` tests passed**, covering bridge requests, runtime settings and
+  setlist actions, queued feedback, local catalog sync, same-count metadata
+  edits, missing files and separate library/performance BPM.
+- JavaScript syntax and `git diff --check`: passed.
+- The local service answered health, settings, empty-library advice and the
+  live public OpenRouter catalog (447 text-output models at verification time).
+- Paid model responses were exercised through simulated OpenRouter responses;
+  no user API key was supplied. Real music transitions, a mounted Rekordbox USB,
+  touch interaction and crowd judgment remain user/device tests.
+- A synthetic 1,000-track catalog produced a ten-song local agent plan in
+  0.279 seconds on this Mac; refreshing unchanged context took 0.007 seconds.
+  These timings are a smoke check, not a Pi performance guarantee.
+
+For a manual test, start with an analyzed library and open **Assist → Models**.
+Apply a key and two model choices. Expected: model-sourced advice, or a clearly
+labeled local fallback. Generate a plan, play its first song, and press **Bad**.
+Expected: the played song leaves the upcoming sequence and the new plan uses
+the rating. Eject a source drive: its songs must disappear. Try loading into a
+playing deck: it must be refused. Check the exported playlist against the
+displayed order. The JSON example contains placeholder paths, so it can test
+planning but cannot validate audio loading.
+
+## Earlier integration record
+
 Verified locally on macOS on 2026-09-19. No physical Raspberry Pi, audio hardware,
 real music library, or Mixxx fork was available for these checks.
 

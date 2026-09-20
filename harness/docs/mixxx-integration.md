@@ -5,14 +5,19 @@ playback. Musicsearch is the existing source of richer catalog/transition tools;
 its local-track JSON exports can be imported here without provider access.
 
 BiteDJ (the fork in `Mixxx/bitedj`) drives this directly through
-`src/harness/harnessbridge.cpp`, over localhost HTTP. The web page and M3U
-export remain for setups without the fork.
+`src/harness/harnessbridge.cpp`, over private stdin/stdout pipes to its bundled
+worker. Mixxx embeds five Python modules as Qt resources, extracts them to a
+private temporary directory, launches Python 3.9+ at lowered priority and stops
+the worker on exit. The worker has no listening socket. The web page and M3U
+export remain for standalone developer setups.
 
-## Local API
+## Command protocol
 
-POST JSON with `Content-Type: application/json` to `http://127.0.0.1:8765`.
-Success returns HTTP 200. Validation failures return HTTP 400 with an `error`
-field. Browser requests must be same-origin. Session defaults to `default`.
+Private JSON lines: request `{id, path, body}`; reply `{id, status, body}`.
+Startup emits `{ready: true}`. IDs allow model requests to finish out of order
+without delaying plays/ratings. Status 200 succeeds; 400 rejects invalid input;
+500 is retryable. A shared dispatcher serves both this protocol and the optional
+developer HTTP tool (POST JSON to the same paths). Session defaults to `default`.
 
 | Endpoint | Request fields | Result |
 | --- | --- | --- |
@@ -27,6 +32,24 @@ field. Browser requests must be same-origin. Session defaults to `default`.
 | `/api/library/unavailable` | `scope` | Tracks of an ejected drive no longer suggested |
 | `/api/features` | `tracks`: `id`, `source`, and generated features | Number stored |
 | `/api/status` | — | Available tracks and the model configuration |
+| `/api/agent/settings` | Empty to read; `api_key`, `next_model`, `plan_model` to apply; `disconnect: true` to forget | Nonsecret runtime settings; keys never returned |
+| `/api/agent/models` | — | Public OpenRouter text-model catalog |
+| `/api/agent` | `session`, `action` (`next`, `generate`, `adjust`, `clear`), optional `count`, `options`, `retry` | Tracks, shared plan, rationale, source and fallback error |
+| `/api/agent/view` | `session` | Saved plan with stale flag, runtime settings; no model request |
+| `/api/agent/export` | `session`, `basis` from the displayed plan | M3U if plan still matches live context; otherwise HTTP 400 |
+
+In HTTP developer mode, agent endpoints require a loopback peer and localhost Host header.
+The native panel uses `/api/agent`; older `/api/recommend` and `/api/setlist`
+remain compatibility endpoints and do not select the runtime agent models.
+`next` refreshes an active rolling plan when its context changes, returning its
+first five upcoming songs plus the full `plan`. Without a plan it returns next-song
+alternatives. `generate`/`adjust` save a plan. `clear` removes it and returns
+next-song alternatives. Equal requests are cached; `retry: true` explicitly
+retries a model call. New plays/feedback/settings invalidate cached results.
+
+The transport uses OpenRouter's documented
+[chat-completions API](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request)
+and [public model catalog](https://openrouter.ai/docs/quickstart).
 
 A sync is lenient where an import is strict: a track Mixxx has not analyzed yet
 is skipped and reported rather than failing the drive. `complete` marks tracks
@@ -67,10 +90,12 @@ pausing record nothing. Each play carries an `event_id` built from session,
 deck and load time, so a retry never records a play twice. The play carries its
 track, so a file from a drive with no Rekordbox export is still recorded.
 
-**Library sync** posts each mounted drive's Rekordbox catalog to
+**Library sync** posts the analyzed local Mixxx collection and each mounted drive's Rekordbox catalog to
 `/api/library/sync` (`complete: true`), polled every 15 s and on every mount
 change; ejecting posts `/api/library/unavailable`, which keeps the history but
-stops those tracks being suggested.
+stops those tracks being suggested. Catalog content hashes detect metadata edits
+even when the track count stays the same. Local files on a mounted drive are
+handled by that drive's Rekordbox catalog, avoiding duplicate local/USB IDs.
 
 **Suggestions** are fetched after every play, rating and sync. Loading is
 manual: a suggestion loads only when the DJ taps Load, and never into a playing
@@ -92,8 +117,12 @@ The GPIO crowd buttons reach `rate_*` through a virtual MIDI port and the
 hidden mapping `res/controllers/mrow-crowd-buttons.midi.xml`; a controller
 mapping can bind pads to the same controls.
 
-**When the harness is down**, plays, ratings and syncs queue in order and are
-retried with backoff; the panel says so, and nothing about the set is blocked.
+**When the worker is down**, plays, ratings and syncs queue in order and are
+retried with backoff; Mixxx restarts the worker automatically. Audio never waits
+for it. Runtime-only credentials need reentry; provisioned credentials reload.
 
-**Settings**: `[Harness],enabled` (default on) and `[Harness],url` (default
-`http://127.0.0.1:8765`) in `mixxx.cfg`.
+**Settings**: `[Harness],enabled` defaults on. The embedded worker is the default
+even if an old `url` remains in `mixxx.cfg`. Only explicit `[Harness],external=1`
+uses HTTP at `[Harness],url` (developer/test mode, default `http://127.0.0.1:8765`).
+Optional owner-only `~/.config/mrow/agent.json` supplies install-time OpenRouter
+settings; it is never embedded in the binary. See [provisioning](../README.md#optional-builddeploy-provisioning).
