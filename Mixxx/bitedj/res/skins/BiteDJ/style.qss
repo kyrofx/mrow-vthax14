@@ -822,6 +822,10 @@ WBeatSpinBox::up-button {
   font-weight: bold;
 }
 
+#WaveformInfo_StemButton:disabled {
+  color: #3a3a3a;
+}
+
 #WaveformInfo_StemButton[value="1"] {
   background-color: #855ea7;
   border-color: #855ea7;
