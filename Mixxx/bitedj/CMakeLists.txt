@@ -1660,6 +1660,7 @@ if(BUILD_TESTING)
     src/test/wnumberpos_test.cpp
     src/test/wpushbutton_test.cpp
     src/test/wusblist_test.cpp
+    src/test/wharnesspanel_test.cpp
     src/test/wwidgetstack_test.cpp
     src/util/moc_included_test.cpp
   )

@@ -27,6 +27,10 @@ fields together: `api_key`, `next_model`, and `plan_model`.
    be replaced. **Export M3U** saves a playlist; **New set** starts fresh session
    exclusions while retaining learned history.
 
+The Assist tab scrolls vertically when its controls and suggestions exceed the
+available height. Use the mouse wheel, trackpad, scrollbar, or a vertical touch
+drag; dragging does not activate the button under your finger.
+
 The native panel is the appliance interface. No browser or separately launched
 service is required. The Python sources in this directory are embedded in the
 Mixxx executable at build time. The optional standalone web tool below is for

@@ -1,5 +1,9 @@
 #include "widget/wharnesspanel.h"
 
+#include <QApplication>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <cmath>
 #include <QComboBox>
 #include <QCheckBox>
 #include <QDesktopServices>
@@ -66,11 +70,25 @@ QString statusName(HarnessBridge::Status status) {
 
 WHarnessPanel::WHarnessPanel(QWidget* parent)
         : WWidget(parent),
-          m_pLayout(new QGridLayout(this)),
+          m_pScrollArea(new QScrollArea(this)),
+          m_pContent(new QWidget(m_pScrollArea)),
+          m_pLayout(new QGridLayout(m_pContent)),
           m_pStatus(new QLabel(this)),
-          m_pNowPlaying(new QLabel(this)),
-          m_pressPending(false) {
+          m_pNowPlaying(new QLabel(this)) {
     setAttribute(Qt::WA_StyledBackground, true);
+    setMouseTracking(true); // WWidget's synthetic touch moves have no held button.
+    auto* outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->addWidget(m_pScrollArea);
+    m_pScrollArea->setFrameShape(QFrame::NoFrame);
+    m_pScrollArea->setWidgetResizable(true);
+    m_pScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_pScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pScrollArea->viewport()->setAutoFillBackground(false);
+    m_pScrollArea->verticalScrollBar()->setSingleStep(40);
+    m_pContent->setAutoFillBackground(false);
+    m_pLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
+    m_pScrollArea->setWidget(m_pContent);
 
     m_pLayout->setContentsMargins(0, 0, 0, 0);
     m_pLayout->setHorizontalSpacing(6);
@@ -487,28 +505,116 @@ void WHarnessPanel::mousePressEvent(QMouseEvent* e) {
         WWidget::mousePressEvent(e);
         return;
     }
-    // Dispatched on release, like a button.
-    m_pressPending = true;
+
+    // Map via global coords so the hit-test is correct regardless of which
+    // widget the synthesized event's local position referenced, and regardless
+    // of how far the content is scrolled.
+    QScrollBar* pScrollBar = m_pScrollArea->verticalScrollBar();
+    if (pScrollBar->isVisible() &&
+            pScrollBar->rect().contains(
+                    pScrollBar->mapFromGlobal(e->globalPosition().toPoint()))) {
+        m_dragState = DragState::ScrollBar;
+        forwardToScrollBar(e);
+        e->accept();
+        return;
+    }
+
+    // Hold the press back until we know whether this is a tap or a drag; the
+    // button action is dispatched on release.
+    m_dragState = DragState::Pending;
+    m_pressGlobalPos = e->globalPosition();
+    m_lastGlobalY = m_pressGlobalPos.y();
+    m_remainingDy = 0;
     e->accept();
 }
 
-void WHarnessPanel::mouseReleaseEvent(QMouseEvent* e) {
-    if (!m_pressPending) {
-        WWidget::mouseReleaseEvent(e);
+void WHarnessPanel::mouseMoveEvent(QMouseEvent* e) {
+    if (m_dragState == DragState::Idle) {
+        WWidget::mouseMoveEvent(e);
         return;
     }
-    m_pressPending = false;
+    if (m_dragState == DragState::ScrollBar) {
+        forwardToScrollBar(e);
+        e->accept();
+        return;
+    }
+
+    const qreal globalY = e->globalPosition().y();
+    if (m_dragState == DragState::Pending) {
+        if (std::abs(globalY - m_pressGlobalPos.y()) < QApplication::startDragDistance()) {
+            // Might still become a tap, keep swallowing.
+            e->accept();
+            return;
+        }
+        m_dragState = DragState::Scrolling;
+        // m_lastGlobalY is still the press position, so the content catches up
+        // with the finger in this first step and stays pinned to it.
+    }
+
+    // Scroll bar values are integers, carry the remainder over to the next
+    // move so slow drags don't get lost in rounding.
+    m_remainingDy += m_lastGlobalY - globalY;
+    const int scrollBy = static_cast<int>(m_remainingDy);
+    if (scrollBy != 0) {
+        m_remainingDy -= scrollBy;
+        QScrollBar* pScrollBar = m_pScrollArea->verticalScrollBar();
+        pScrollBar->setValue(pScrollBar->value() + scrollBy);
+    }
+    m_lastGlobalY = globalY;
+    e->accept();
+}
+
+bool WHarnessPanel::event(QEvent* e) {
+    if (e->type() == QEvent::TouchCancel || e->type() == QEvent::Hide) {
+        m_dragState = DragState::Idle;
+    }
+    return WWidget::event(e);
+}
+
+void WHarnessPanel::mouseReleaseEvent(QMouseEvent* e) {
+    const DragState state = m_dragState;
+    m_dragState = DragState::Idle;
+    if (state == DragState::ScrollBar) {
+        forwardToScrollBar(e);
+        e->accept();
+        return;
+    }
     const QPoint globalPos = e->globalPosition().toPoint();
-    // Copy: the action may rebuild the rows, and with them m_actions.
-    const QList<QPair<QPushButton*, Action>> actions = m_actions;
-    for (const auto& [pButton, action] : actions) {
-        if (pButton->isVisible() && pButton->isEnabled() &&
-                pButton->rect().contains(pButton->mapFromGlobal(globalPos))) {
-            action();
-            break;
+    const auto* viewport = m_pScrollArea->viewport();
+    if (state == DragState::Pending &&
+            (e->globalPosition() - m_pressGlobalPos).manhattanLength() < QApplication::startDragDistance() &&
+            viewport->rect().contains(viewport->mapFromGlobal(globalPos))) {
+        // Only a tap beginning and ending on the same visible button activates it.
+        const auto actions = m_actions;
+        for (const auto& [button, action] : actions) {
+            if (button->isVisible() && button->isEnabled() &&
+                    button->rect().contains(button->mapFromGlobal(m_pressGlobalPos.toPoint())) &&
+                    button->rect().contains(button->mapFromGlobal(globalPos))) {
+                action();
+                break;
+            }
         }
     }
     e->accept();
+}
+
+void WHarnessPanel::forwardToScrollBar(QMouseEvent* pEvent) {
+    QScrollBar* pScrollBar = m_pScrollArea->verticalScrollBar();
+    const QPointF localPos = pScrollBar->mapFromGlobal(pEvent->globalPosition().toPoint());
+    const bool isRelease = pEvent->type() == QEvent::MouseButtonRelease;
+    const bool isMove = pEvent->type() == QEvent::MouseMove;
+    const QPointingDevice* pDevice = pEvent->pointingDevice()
+            ? pEvent->pointingDevice()
+            : QPointingDevice::primaryPointingDevice();
+    QMouseEvent forwarded(pEvent->type(),
+            localPos,
+            localPos,
+            pEvent->globalPosition(),
+            isMove ? Qt::NoButton : Qt::LeftButton,
+            isRelease ? Qt::NoButton : Qt::LeftButton,
+            pEvent->modifiers(),
+            pDevice);
+    QCoreApplication::sendEvent(pScrollBar, &forwarded);
 }
 
 void WHarnessPanel::showMusicGeneration() {
