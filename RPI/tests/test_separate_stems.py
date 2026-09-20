@@ -46,7 +46,7 @@ class FakeRun:
 class StemsTestCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.music = Path(self.temp.name) / 'Music'
+        self.music = Path(self.temp.name).resolve() / 'Music'
         self.music.mkdir()
         self.track = self.music / 'track.mp3'
         self.track.write_bytes(b'x' * 4096)
@@ -174,6 +174,63 @@ class MainTests(StemsTestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len([c for c in runner.calls if c[0] == 'demucs']), 2)
         self.assertIn('2 track(s) failed', ' '.join(self.log))
+
+
+class LibraryPreparationTests(StemsTestCase):
+    def test_overlapping_library_paths_are_deduplicated(self):
+        self.assertEqual(stems.find_tracks([self.music, self.track]), [self.track])
+
+    def test_partial_stems_and_appledouble_files_are_ignored(self):
+        partial = self.music / 'track.mp3.stems.partial'
+        partial.mkdir()
+        (partial / 'vocals.opus').write_bytes(b'incomplete')
+        (self.music / '._track.mp3').write_bytes(b'metadata')
+        self.assertEqual(stems.find_tracks([self.music]), [self.track])
+
+    def test_device_and_segment_reach_demucs(self):
+        runner = FakeRun()
+        stems.separate(self.track, 'htdemucs', '128k', runner, self.log.append,
+                       device='cuda', segment=7)
+        command = runner.calls[0]
+        self.assertEqual(command[command.index('--device') + 1], 'cuda')
+        self.assertEqual(command[command.index('--segment') + 1], '7')
+
+    def test_report_records_failures_and_rerun_resumes(self):
+        report = Path(self.temp.name) / 'report.json'
+        second = self.music / 'second.mp3'
+        second.write_bytes(b'music')
+        fake = FakeRun()
+
+        def run(argv, **kwargs):
+            if argv[0] == 'demucs' and argv[-1] == str(second):
+                raise subprocess.CalledProcessError(1, argv)
+            return fake(argv, **kwargs)
+
+        code = stems.main([str(self.music), '--report', str(report)], run=run,
+                          log=self.log.append, which=lambda _: '/bin/tool')
+        self.assertEqual(code, 1)
+        data = json.loads(report.read_text())
+        self.assertEqual(data['completed'], [str(self.track)])
+        self.assertEqual(data['failed'][0]['path'], str(second))
+        self.assertEqual(self.run_main(self.music, '--report', report), 0)
+        data = json.loads(report.read_text())
+        self.assertEqual(data['skipped'], 1)
+        self.assertEqual(data['completed'], [str(second)])
+
+    def test_interrupted_run_saves_report(self):
+        report = Path(self.temp.name) / 'report.json'
+
+        def interrupted(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        code = stems.main([str(self.track), '--report', str(report)], run=interrupted,
+                          log=self.log.append, which=lambda _: '/bin/tool')
+        self.assertEqual(code, 130)
+        self.assertTrue(json.loads(report.read_text())['interrupted'])
+        self.assertFalse(stems.stems_dir(self.track).exists())
+
+    def test_missing_library_is_an_error(self):
+        self.assertEqual(self.run_main(self.music / 'missing', '--dry-run'), 2)
 
 
 if __name__ == '__main__':
