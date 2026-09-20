@@ -138,6 +138,14 @@ boot, so Bluetooth is dead until something clears it. Symptom is
 `pipewire-alsa` is also required if BiteDJ is ever to output to a Bluetooth speaker —
 without it there is no ALSA route into PipeWire at all. See [audio.md](audio.md#bluetooth).
 
+## USB at boot
+
+`/etc/systemd/system/bitedj-usb-recover.service`, enabled. The Pi does not drop
+USB bus power across a warm reboot, so a bus-powered controller can fail to
+re-enumerate and simply not exist until it is replugged. The unit power-cycles
+only ports that have power and no device, via `uhubctl`, which is a no-op on a
+healthy boot. See [troubleshooting.md](troubleshooting.md#the-dj-controller-is-missing-after-a-reboot).
+
 ## Polkit
 
 `/etc/polkit-1/rules.d/50-bitedj.rules` grants, to a **local active session in the

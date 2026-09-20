@@ -1,0 +1,61 @@
+#!/bin/bash
+# Power-cycle USB ports that came up dead, so the DJ controller is found at boot.
+#
+# The Pi does not drop USB bus power across a warm reboot. A bus-powered USB
+# audio device can therefore still be sitting in the configured state it was
+# left in, never re-enumerate, and simply not exist after a reboot -- `lsusb`
+# shows nothing and dmesg logs no attach at all. Physically replugging it is
+# the usual workaround; this does the same thing electrically.
+#
+# It only cycles ports that have power but NO device connected, which is
+# precisely the failure state. A controller that enumerated normally shows
+# "connect" and is left alone, as are the keyboard and the music drive. So this
+# is a no-op on a healthy boot.
+#
+# Run from a systemd unit at boot, or by hand when the controller vanishes.
+
+set -uo pipefail
+
+UHUBCTL=${UHUBCTL:-/usr/sbin/uhubctl}
+command -v "$UHUBCTL" >/dev/null 2>&1 || UHUBCTL=uhubctl
+
+say() { printf '%s\n' "$*"; }
+
+# Only hubs that actually support per-port power switching ("ppps") can do
+# this. On a Pi 4 that is the internal VIA hub the external ports hang off.
+mapfile -t dead < <(
+    sudo "$UHUBCTL" 2>/dev/null | awk '
+        /^Current status for hub/ {
+            hub = $5
+            gsub(/[^0-9.\-]/, "", hub)
+            ppps = ($0 ~ /ppps/)
+            next
+        }
+        /^  Port [0-9]+:/ && ppps {
+            port = $2; sub(/:/, "", port)
+            # "power" without "connect" means the port is live but empty.
+            if ($0 ~ /power/ && $0 !~ /connect/) print hub, port
+        }
+    '
+)
+
+if [ ${#dead[@]} -eq 0 ]; then
+    say "bitedj-usb-recover: no empty powered ports; nothing to do"
+    exit 0
+fi
+
+for entry in "${dead[@]}"; do
+    hub=${entry%% *}
+    port=${entry##* }
+    say "bitedj-usb-recover: cycling hub $hub port $port"
+    # -d 2: off for 2s, long enough for a bus-powered device to fully reset.
+    sudo "$UHUBCTL" -l "$hub" -p "$port" -a cycle -d 2 -w 2000 >/dev/null 2>&1 || true
+done
+
+# Give the bus a moment, then report whether anything appeared.
+sleep 3
+if lsusb 2>/dev/null | grep -qi alphatheta; then
+    say "bitedj-usb-recover: DJ controller present"
+else
+    say "bitedj-usb-recover: no DJ controller found (it may simply be unplugged)"
+fi

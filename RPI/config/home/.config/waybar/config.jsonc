@@ -87,10 +87,14 @@
         "tooltip-format": "<big>{:%A %d %B %Y}</big>"
     },
 
+    // Tapping opens a slider rather than toggling mute: there is no scroll
+    // wheel on a touchscreen, so mute-only left the number readable and the
+    // volume unchangeable.
     "wireplumber": {
         "format": "vol {volume}%",
         "format-muted": "muted",
-        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+        "on-click": "$HOME/.local/bin/bitedj-volume",
+        "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
     },
 
     // The Pi 4 throttles hard without a heatsink, and throttling means audio

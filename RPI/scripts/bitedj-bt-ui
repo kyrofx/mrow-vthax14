@@ -182,6 +182,7 @@ class Picker(Gtk.Window):
         for label, cb in (
             ("Scan for new", self.on_scan),
             ("Refresh", lambda _b: self.refresh()),
+            ("Forget all", self.on_forget_all),
             ("Close", lambda _b: Gtk.main_quit()),
         ):
             b = Gtk.Button(label=label)
@@ -333,12 +334,18 @@ class Picker(Gtk.Window):
             ensure_powered()
             if not is_paired:
                 bt("pair", mac, timeout=90)
-            # trust = reconnect on its own next time, without pairing again.
-            bt("trust", mac)
             ok, out = bt("connect", mac, timeout=60)
-            if ok:
-                set_default_sink(mac)
-            return ok, out
+            if not ok:
+                # A trusted-but-unpaired entry is the state this box keeps
+                # ending up in after a reboot; bluez then refuses with
+                # br-connection-refused while still listing the device.
+                # Clearing it makes the next attempt a clean pairing, which is
+                # the path that actually works. Deliberately never "trust":
+                # that is what drives the auto-reconnect we do not want.
+                bt("remove", mac)
+                return False, "Stale pairing cleared -- scan and connect again"
+            set_default_sink(mac)
+            return True, out
 
         def done(result):
             ok, out = result
@@ -350,6 +357,21 @@ class Picker(Gtk.Window):
     def on_disconnect(self, mac, name):
         self.set_message(f"Disconnecting {name}...")
         self.work(lambda: bt("disconnect", mac), done=lambda _r: self.refresh())
+
+    def on_forget_all(self, _button):
+        self.confirm(
+            "Forget all saved Bluetooth devices?", "Forget all",
+            self._forget_all)
+
+    def _forget_all(self):
+        self.set_message("Clearing saved devices...")
+
+        def job():
+            for mac, _name in device_list():
+                bt("remove", mac)
+            return True
+
+        self.work(job, done=lambda _r: self.refresh())
 
     def on_scan(self, _button):
         self.set_message(

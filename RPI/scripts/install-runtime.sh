@@ -41,7 +41,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     pipewire pipewire-pulse wireplumber \
     policykit-1 mate-polkit \
     foot pcmanfm \
-    lisgd wvkbd \
+    lisgd wvkbd uhubctl \
     python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 python3-libevdev \
     bluez pipewire-alsa libspa-0.2-bluetooth \
     grim mesa-utils evtest evemu-tools \
@@ -125,7 +125,7 @@ install -m 644 "$CONFIG/home/.config/wireplumber/wireplumber.conf.d/50-bitedj-re
 
 for s in bitedj-session waybar-usb add-wifi bitedj-bt bitedj-bt-ui \
          bitedj-screen bitedj-gestures bitedj-osk bitedj-power \
-         bitedj-cursor-park; do
+         bitedj-cursor-park bitedj-volume bitedj-usb-recover; do
     install -m 755 "$HERE/$s" "$USER_HOME/.local/bin/$s"
 done
 
