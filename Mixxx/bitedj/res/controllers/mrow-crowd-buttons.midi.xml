@@ -6,13 +6,35 @@
          whose name contains the device's. -->
     <name>MROW Crowd Buttons</name>
     <author>MROW</author>
-    <description>Good / Mid / Bad crowd buttons on the Raspberry Pi's GPIO pins, sent as MIDI notes by the mrow-buttons daemon. Rates the current play ([Harness],rate_good / rate_mid / rate_bad). Remap here: point a note at another [Harness] control, or add notes for more buttons (for example [Harness],skip_suggestion_1, or [Harness],load_suggestion_1_deck_1).</description>
+    <description>Pi switches: Load 1, Load 2, Good, Med, Bad. Qwiic Twist: FLX4 browse rotation and pushbutton.</description>
     <!-- Built into the unit: applied automatically, never shown in the Devices picker. -->
     <hidden>true</hidden>
   </info>
   <controller id="MROW:crowd-buttons">
-    <scriptfiles/>
+    <scriptfiles>
+      <file filename="mrow-controls.js" functionprefix="MROWControls"/>
+    </scriptfiles>
     <controls>
+      <control>
+        <group>[Channel1]</group><key>LoadSelectedTrack</key>
+        <status>0x90</status><midino>0x40</midino>
+        <options><Normal/></options>
+      </control>
+      <control>
+        <group>[Channel2]</group><key>LoadSelectedTrack</key>
+        <status>0x90</status><midino>0x41</midino>
+        <options><Normal/></options>
+      </control>
+      <control>
+        <group>[Library]</group><key>MROWControls.browseRotate</key>
+        <status>0xB0</status><midino>0x40</midino>
+        <options><Script-Binding/></options>
+      </control>
+      <control>
+        <group>[Library]</group><key>MROWControls.browsePress</key>
+        <status>0x90</status><midino>0x42</midino>
+        <options><Script-Binding/></options>
+      </control>
       <!-- The daemon sends note on, velocity 127 on press and velocity 0 on
            release, so each button needs only the 0x90 entry. Channel 1, notes
            as in ~/.config/mrow/buttons.toml. -->

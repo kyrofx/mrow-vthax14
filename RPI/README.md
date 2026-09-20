@@ -19,7 +19,7 @@ covered there in more depth, including why each choice was made.
 - `config/` — configuration files, laid out mirroring their real paths on the Pi, so
   `config/etc/...` goes to `/etc/...` and `config/home/...` goes to `~/...`.
 - `src/` — Raspberry Pi application and device code.
-  - `src/buttons/` — the GPIO crowd buttons (Good / Mid / Bad) as a virtual
+  - `src/buttons/` — the five GPIO switches and Qwiic Twist as a virtual
     MIDI port BiteDJ reads; see below.
 - `tests/` — automated tests for Raspberry Pi code.
 
@@ -134,7 +134,7 @@ remains a separate service:
 
 | Service | What it does |
 | --- | --- |
-| `mrow-buttons` | Three GPIO buttons sent as MIDI notes on a virtual port BiteDJ maps to `[Harness],rate_good / rate_mid / rate_bad`. |
+| `mrow-buttons` | Five GPIO switches plus the I2C Twist, sent through one virtual MIDI port. |
 
 `bitedj-session` starts the buttons before BiteDJ. The button service is ordered first
 on purpose: BiteDJ enumerates MIDI devices once at startup, so a port that
@@ -145,11 +145,41 @@ appears later is not seen until a rescan.
 Each button goes between its GPIO pin and ground; the pull-up is enabled in
 software, so a press reads low. The defaults (BCM numbering):
 
-| Button | GPIO | Physical pin | Note |
-| --- | --- | --- | --- |
-| Good | 17 | 11 | 0x3C |
-| Mid | 27 | 13 | 0x3D |
-| Bad | 22 | 15 | 0x3E |
+| Switch | Action | BCM GPIO | Physical pin | MIDI note |
+| --- | --- | --- | --- | --- |
+| 1 | Load selected track into deck 1 | 17 | 11 | 0x40 |
+| 2 | Load selected track into deck 2 | 27 | 13 | 0x41 |
+| 3 | Good audience reaction | 22 | 15 | 0x3C |
+| 4 | Med audience reaction (`rate_mid`) | 23 | 16 | 0x3D |
+| 5 | Bad audience reaction | 24 | 18 | 0x3E |
+
+All switches share ground. Idle is HIGH / 1; pressed is LOW / 0.
+The service samples every 5 ms and requires a stable state for 20 ms for both
+press and release. Holding a switch does not repeat. A switch held at service
+startup must be released before it can trigger a load or rating.
+
+On the verified appliance, the SparkFun Qwiic Twist shares the display's
+**I2C bus 10** (3.3 V logic/power and common ground). A live scan found 0x3F
+alongside the display's claimed 0x38/0x45 addresses. The shipped config uses
+bus 10. Normal header SDA GPIO2 / SCL GPIO3 wiring uses bus 1 instead; set
+`[twist].bus = 1` for that wiring. The daemon fallback with no config also uses
+bus 1. No extra encoder GPIOs are needed. The default address is **0x3F**; the address jumper selects 0x3E.
+The daemon checks device ID 0x5C before accepting input. It reads the count
+without resetting it and handles signed 16-bit wraparound. The count is
+little-endian and the current push level is status bit 1 in
+[SparkFun's firmware](https://github.com/sparkfun/Qwiic_Twist/blob/master/Firmware/Qwiic_Twist/Qwiic_Twist.ino).
+RGB settings are left at their existing values.
+
+Twist behavior matches the unshifted FLX4 browse control in this fork:
+
+- Rotate on Play: waveform zoom; rotate elsewhere: library selection.
+- Press on Play: open Browse; press elsewhere: move library focus forward.
+- Clockwise sends +1 and counterclockwise -1 per detent. Set `reverse = true`
+  in `[twist]` if the direction should be reversed.
+
+An absent or disconnected Twist logs an error and retries every two seconds;
+the GPIO switches and virtual MIDI port remain available. Reconnection takes
+a fresh count baseline so missed turns are not replayed.
 
 Ground is on physical pins 6, 9, 14, 20, 25, 30, 34 or 39.
 
@@ -162,10 +192,55 @@ Two layers, neither needing a rebuild:
   service: `python3 ~/.local/share/mrow/buttons/mrow_buttons.py --check`.
 - **Changing what a button does** — the Mixxx mapping
   `res/controllers/mrow-crowd-buttons.midi.xml` in the fork. Point a note at
-  any `[Harness]` control, or add a fourth button for, say,
-  `skip_suggestion_1`. A DJ controller's pads can bind to the same controls.
+  a Mixxx control. Browse behavior lives in `mrow-controls.js`. A DJ
+  controller's pads can bind to the same controls.
+
+### Existing Pi configuration
+
+Install/deploy scripts preserve `~/.config/mrow/buttons.toml`. A Pi with the old
+three-button configuration will keep its old wiring until you replace it.
+For this five-switch hardware, run from the updated checkout on the Pi:
+
+```sh
+cp ~/.config/mrow/buttons.toml ~/.config/mrow/buttons.toml.before-key-bindings
+cp RPI/config/home/.config/mrow/buttons.toml ~/.config/mrow/buttons.toml
+```
+
+Install the updated daemon **and** both controller files
+(`mrow-crowd-buttons.midi.xml` and `mrow-controls.js`) into the active Mixxx
+resource directory. A full `RPI/scripts/deploy.sh` includes both; `--only buttons`
+updates only the Python bridge and is insufficient for the new mapping.
+`install-runtime.sh` installs `python3-smbus2` and `i2c-tools` and adds the user to `i2c` as well as `gpio`. On an existing installation:
+
+```sh
+sudo apt-get install python3-smbus2 i2c-tools
+sudo usermod -aG i2c,gpio "$USER"
+# Only needed for header GPIO2/3 wiring if bus 1 is not enabled:
+sudo raspi-config nonint do_i2c 0
+```
+
+Log out/reboot after changing groups so the user service inherits membership.
+Before starting the updated service, run `sudo i2cdetect -y 10` (or `-y 1`
+for header wiring) and check the display address and `3f`. A scan alone cannot distinguish two devices sharing an address:
+if the display also uses 0x3F, change the Twist address (e.g. jumper to 0x3E)
+and update `[twist].address` before running the bridge. No automatic address
+changes or display reconfiguration are performed.
 
 ### Checking it
+
+Goal: one action per press, correct browse direction, and uninterrupted display.
+After installing the mapping, restart BiteDJ when it is safe to interrupt audio.
+Then test switches 1–5 for deck 1 load, deck 2 load, Good, Med, Bad; hold and release
+each switch to confirm no repeated action. Turn the Twist both ways in Browse,
+press to change focus, and check the Play-screen zoom/open-Browse behavior.
+
+Automated checks (no Pi hardware required):
+
+```sh
+python3 -m unittest discover -s RPI/tests -v
+node RPI/tests/test_controls.js
+```
+
 
 ```sh
 systemctl --user status mrow-buttons

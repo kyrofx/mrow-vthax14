@@ -1,23 +1,35 @@
-# GPIO crowd buttons (RPI/src/buttons). Wire each button between its GPIO pin
-# and ground; the pull-up is enabled in software, so a press reads as low.
-#
-# Rewiring a button: change its pin here.
-# Changing what a button does: edit the notes in the Mixxx mapping
-# res/controllers/mrow-crowd-buttons.midi.xml (any [Harness] control works).
-
-chip = "/dev/gpiochip0"        # Pi 4. A Pi 5 exposes its pins on a different chip.
-port_name = "MROW Crowd Buttons" # Must stay in the Mixxx mapping's <name>.
+# BCM numbering. Wire each switch GPIO -> switch -> shared GND.
+# Internal pull-ups: idle HIGH, pressed LOW. Stable-level software debounce.
+chip = "/dev/gpiochip0"
+port_name = "MROW Crowd Buttons" # Keep the existing auto-matched virtual port name.
 channel = 1
-debounce_ms = 30
+debounce_ms = 20
+
+[buttons.load1]
+pin = 17 # physical 11
+note = 0x40
+
+[buttons.load2]
+pin = 27 # physical 13
+note = 0x41
 
 [buttons.good]
-pin = 17                       # BCM numbering: GPIO17 is physical pin 11
+pin = 22 # physical 15
 note = 0x3C
 
-[buttons.mid]
-pin = 27                       # physical pin 13
+[buttons.mid] # Switch 4: med audience reaction (Mixxx calls it rate_mid)
+pin = 23 # physical 16
 note = 0x3D
 
 [buttons.bad]
-pin = 22                       # physical pin 15
+pin = 24 # physical 18
 note = 0x3E
+
+[twist]
+enabled = true
+bus = 10 # Verified display/piggyback bus on this Pi. Header GPIO2/3 uses bus 1.
+# Shared 3.3 V power/logic and GND.
+address = 0x3F # Use 0x3E here if the address jumper is closed.
+cc = 0x40
+note = 0x42 # Encoder pushbutton
+reverse = false
