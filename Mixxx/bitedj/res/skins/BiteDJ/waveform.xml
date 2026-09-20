@@ -94,11 +94,9 @@
                     <SetVariable name="LeftConnectionControl">[Channel<Variable name="channel"/>],quantize</SetVariable>
                   </Template>
 
-                  <!-- Stems: swaps this deck's overview strip for its stem
-                       buttons (see deck.xml). Sits with Q and keylock because
-                       it is the same kind of per-deck toggle, but is spelled
-                       out rather than using their template: it needs a second
-                       connection, and the template is shared with them. -->
+                  <!-- Only one S button is visible at a time. Opening requires
+                       stems; closing must always work, including after loading
+                       a track with no stems while the panel is open. -->
                   <PushButton>
                     <ObjectName>WaveformInfo_StemButton</ObjectName>
                     <Size>30me,30f</Size>
@@ -116,11 +114,37 @@
                       <EmitOnPressAndRelease>true</EmitOnPressAndRelease>
                       <ButtonState>LeftButton</ButtonState>
                     </Connection>
-                    <!-- Greyed out, not hidden, when the loaded track has no
-                         stems: the row must not reflow between tracks. -->
+                    <Connection>
+                      <ConfigKey>[Skin],stem_panel_<Variable name="channel"/></ConfigKey>
+                      <BindProperty>visible</BindProperty>
+                      <Transform><Not/></Transform>
+                    </Connection>
                     <Connection>
                       <ConfigKey>[Channel<Variable name="channel"/>],stem_available</ConfigKey>
                       <BindProperty>enabled</BindProperty>
+                    </Connection>
+                  </PushButton>
+
+                  <PushButton>
+                    <ObjectName>WaveformInfo_StemButton</ObjectName>
+                    <Size>30me,30f</Size>
+                    <NumberStates>2</NumberStates>
+                    <State>
+                      <Number>0</Number>
+                      <Text>S</Text>
+                    </State>
+                    <State>
+                      <Number>1</Number>
+                      <Text>S</Text>
+                    </State>
+                    <Connection>
+                      <ConfigKey>[Skin],stem_panel_<Variable name="channel"/></ConfigKey>
+                      <EmitOnPressAndRelease>true</EmitOnPressAndRelease>
+                      <ButtonState>LeftButton</ButtonState>
+                    </Connection>
+                    <Connection>
+                      <ConfigKey>[Skin],stem_panel_<Variable name="channel"/></ConfigKey>
+                      <BindProperty>visible</BindProperty>
                     </Connection>
                   </PushButton>
 
