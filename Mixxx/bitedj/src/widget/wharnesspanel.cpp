@@ -54,6 +54,23 @@ void restyle(QStyle* pStyle, QWidget* pWidget) {
     pStyle->polish(pWidget);
 }
 
+void presentDialog(QDialog* dialog) {
+    dialog->setAttribute(Qt::WA_StyledBackground);
+    dialog->setWindowModality(Qt::ApplicationModal);
+    if (!dialog->findChild<QLabel*>(QStringLiteral("AssistDialogTitle"))) {
+        auto* title = new QLabel(dialog->windowTitle(), dialog);
+        title->setObjectName(QStringLiteral("AssistDialogTitle"));
+        title->setWordWrap(true);
+        title->setTextFormat(Qt::PlainText);
+        if (auto* layout = qobject_cast<QVBoxLayout*>(dialog->layout())) {
+            layout->insertWidget(0, title);
+        }
+    }
+    dialog->open();
+    dialog->raise();
+    dialog->activateWindow();
+}
+
 QString statusName(HarnessBridge::Status status) {
     switch (status) {
     case HarnessBridge::Status::Model:
@@ -74,11 +91,18 @@ WHarnessPanel::WHarnessPanel(QWidget* parent)
           m_pContent(new QWidget(m_pScrollArea)),
           m_pLayout(new QGridLayout(m_pContent)),
           m_pStatus(new QLabel(this)),
+          m_pResponse(new QLabel(this)),
           m_pNowPlaying(new QLabel(this)) {
     setAttribute(Qt::WA_StyledBackground, true);
     setMouseTracking(true); // WWidget's synthetic touch moves have no held button.
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
+    m_pResponse->setObjectName(QStringLiteral("HarnessResponse"));
+    m_pResponse->setTextFormat(Qt::PlainText);
+    m_pResponse->setWordWrap(true);
+    m_pResponse->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_pResponse->hide();
+    outer->addWidget(m_pResponse);
     outer->addWidget(m_pScrollArea);
     m_pScrollArea->setObjectName(QStringLiteral("HarnessScrollArea"));
     m_pContent->setObjectName(QStringLiteral("HarnessScrollContent"));
@@ -199,6 +223,9 @@ void WHarnessPanel::updateHeader() {
     }
     m_pStatus->setText(pBridge->agentBusy() ? tr("Agent is planning…") : status);
     m_pStatus->setToolTip(status);
+    const QString response = pBridge->adviceSummary();
+    m_pResponse->setVisible(!response.isEmpty());
+    m_pResponse->setText((pBridge->agentBusy() ? tr("Updating advice…\n") : tr("Agent response\n")) + response);
     m_pStatus->setProperty(kStatusProperty, statusName(pBridge->status()));
     restyle(style(), m_pStatus);
 
@@ -289,17 +316,39 @@ void WHarnessPanel::rebuildSuggestions() {
     }
 }
 
-void WHarnessPanel::showAgentSettings() {
-    auto* bridge = HarnessBridge::tryInstance();
-    if (!bridge) {
-        return;
+QDialog* WHarnessPanel::createAssistDialog(const QString& name, const QString& title, const QSize& size) {
+    if (auto* existing = findChild<QDialog*>(name)) {
+        presentDialog(existing);
+        return nullptr;
     }
     auto* dialog = new QDialog(this);
+    dialog->setObjectName(name);
     dialog->setProperty("bitedjAssistDialog", true);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(tr("Agent models · Google Cloud Gemini"));
-    dialog->resize(640, 420);
+    dialog->setWindowTitle(title);
+    dialog->resize(size);
     auto* layout = new QVBoxLayout(dialog);
+    if (!HarnessBridge::tryInstance()) {
+        auto* error = new QLabel(tr("The assistant is unavailable. Restart BiteDJ to start the built-in agent."), dialog);
+        error->setWordWrap(true);
+        layout->addWidget(error);
+        auto* close = new QPushButton(tr("Close"), dialog);
+        close->setMinimumHeight(44);
+        layout->addWidget(close);
+        connect(close, &QPushButton::clicked, dialog, &QDialog::close);
+        presentDialog(dialog);
+        return nullptr;
+    }
+    return dialog;
+}
+
+void WHarnessPanel::showAgentSettings() {
+    auto* dialog = createAssistDialog(QStringLiteral("HarnessModelsDialog"), tr("Agent models · Google Cloud Gemini"), QSize(640, 420));
+    if (!dialog) {
+        return;
+    }
+    auto* bridge = HarnessBridge::tryInstance();
+    auto* layout = qobject_cast<QVBoxLayout*>(dialog->layout());
     auto* note = new QLabel(tr("Keys load from the installed configuration. Song metadata and ratings are sent to the configured model; audio stays local."), dialog);
     note->setWordWrap(true);
     layout->addWidget(note);
@@ -391,20 +440,16 @@ void WHarnessPanel::showAgentSettings() {
         });
     };
     connect(save, &QPushButton::clicked, dialog, [apply] { apply(false); });
-    dialog->open();
+    presentDialog(dialog);
 }
 
 void WHarnessPanel::showSetlist() {
-    auto* bridge = HarnessBridge::tryInstance();
-    if (!bridge) {
+    auto* dialog = createAssistDialog(QStringLiteral("HarnessSetlistDialog"), tr("Agent setlist"), QSize(760, 480));
+    if (!dialog) {
         return;
     }
-    auto* dialog = new QDialog(this);
-    dialog->setProperty("bitedjAssistDialog", true);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(tr("Agent setlist"));
-    dialog->resize(760, 480);
-    auto* layout = new QVBoxLayout(dialog);
+    auto* bridge = HarnessBridge::tryInstance();
+    auto* layout = qobject_cast<QVBoxLayout*>(dialog->layout());
     auto* status = new QLabel(dialog);
     status->setWordWrap(true);
     status->setTextFormat(Qt::PlainText);
@@ -495,7 +540,7 @@ void WHarnessPanel::showSetlist() {
                 });
     });
     refresh();
-    dialog->open();
+    presentDialog(dialog);
 }
 
 void WHarnessPanel::mousePressEvent(QMouseEvent* e) {
@@ -617,9 +662,7 @@ void WHarnessPanel::forwardToScrollBar(QMouseEvent* pEvent) {
 
 void WHarnessPanel::showMusicGeneration() {
     if (auto* existing = findChild<QDialog*>(QStringLiteral("HarnessMusicDialog"))) {
-        existing->open();
-        existing->raise();
-        existing->activateWindow();
+        presentDialog(existing);
         return;
     }
     auto* bridge = HarnessBridge::tryInstance();
@@ -637,9 +680,7 @@ void WHarnessPanel::showMusicGeneration() {
         auto* close = new QPushButton(tr("Close"), dialog);
         layout->addWidget(close);
         connect(close, &QPushButton::clicked, dialog, &QDialog::close);
-        dialog->open();
-        dialog->raise();
-        dialog->activateWindow();
+        presentDialog(dialog);
         return;
     }
     auto* note = new QLabel(tr("Create original music from Good / Mid / Bad ratings of played songs across sets. "
@@ -772,7 +813,5 @@ void WHarnessPanel::showMusicGeneration() {
         });
     });
     refresh();
-    dialog->open();
-    dialog->raise();
-    dialog->activateWindow();
+    presentDialog(dialog);
 }

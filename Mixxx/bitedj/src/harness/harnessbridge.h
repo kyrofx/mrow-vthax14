@@ -125,6 +125,7 @@ class HarnessBridge : public QObject {
     QString statusDetail() const {
         return m_statusDetail;
     }
+    QString adviceSummary() const { return m_adviceSummary; }
     QString session() const {
         return m_session;
     }
@@ -166,6 +167,7 @@ class HarnessBridge : public QObject {
     /// Suggestions, current play, rating or status changed. WHarnessPanel
     /// rebuilds from the getters.
     void stateChanged();
+    void adviceReceived(const QString& summary);
 
   private:
     struct Request {
@@ -226,6 +228,8 @@ class HarnessBridge : public QObject {
     QString m_session;
     Status m_status;
     QString m_statusDetail;
+    QString m_adviceSummary;
+    QByteArray m_adviceFingerprint;
     QList<Suggestion> m_suggestions;
     QList<Suggestion> m_rankedSuggestions;
     QList<Suggestion> m_generatedSuggestions;

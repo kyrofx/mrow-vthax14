@@ -204,4 +204,63 @@ TEST_F(WHarnessPanelTest, BiteDjSkinRendersDarkScrollBackground) {
     panel->setParent(nullptr);
 }
 
+TEST_F(WHarnessPanelTest, SetlistAndModelsTouchAlwaysPresentNamedDialogs) {
+    auto* device = QTest::createTouchDevice(QInputDevice::DeviceType::TouchScreen);
+    for (const auto& entry : QList<QPair<QString, QString>>{
+                 {QStringLiteral("Setlist"), QStringLiteral("HarnessSetlistDialog")},
+                 {QStringLiteral("Models"), QStringLiteral("HarnessModelsDialog")}}) {
+        QPushButton* trigger = nullptr;
+        for (auto* button : panel->findChildren<QPushButton*>()) {
+            if (button->text() == entry.first) trigger = button;
+        }
+        ASSERT_NE(nullptr, trigger);
+        scroll->ensureWidgetVisible(trigger);
+        QCoreApplication::processEvents();
+        const QPoint center = trigger->rect().center();
+        QTest::touchEvent(trigger, device).press(0, center, trigger);
+        QTest::touchEvent(trigger, device).release(0, center, trigger);
+        QTest::qWait(20);
+        auto* dialog = panel->findChild<QDialog*>(entry.second);
+        ASSERT_NE(nullptr, dialog);
+        EXPECT_TRUE(dialog->isVisible());
+        EXPECT_TRUE(dialog->isModal());
+        ASSERT_NE(nullptr, dialog->findChild<QLabel*>(QStringLiteral("AssistDialogTitle")));
+        trigger->click();
+        EXPECT_EQ(1, panel->findChildren<QDialog*>(entry.second).size());
+        dialog->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+}
+
+TEST_F(WHarnessPanelTest, SetlistAndModelsHaveVisibleControlsAndDarkBackground) {
+    config()->setValue(ConfigKey("[Harness]", "enabled"), false);
+    HarnessBridge bridge(config(), nullptr, nullptr);
+    QFile skin(getTestDir().filePath(QStringLiteral("../../res/skins/BiteDJ/style.qss")));
+    ASSERT_TRUE(skin.open(QIODevice::ReadOnly));
+    panel->setStyleSheet(QString::fromUtf8(skin.readAll()));
+    for (const auto& entry : QList<QPair<QString, QString>>{
+                 {QStringLiteral("Setlist"), QStringLiteral("HarnessSetlistDialog")},
+                 {QStringLiteral("Models"), QStringLiteral("HarnessModelsDialog")}}) {
+        for (auto* button : panel->findChildren<QPushButton*>()) {
+            if (button->text() != entry.first) continue;
+            button->click();
+            QTest::qWait(20);
+            auto* dialog = panel->findChild<QDialog*>(entry.second);
+            ASSERT_NE(nullptr, dialog);
+            EXPECT_TRUE(dialog->isVisible());
+            EXPECT_TRUE(dialog->isModal());
+            const QImage image = dialog->grab().toImage();
+            EXPECT_EQ(QColor(QStringLiteral("#151515")), image.pixelColor(2, 2));
+            bool hasClose = false;
+            for (auto* control : dialog->findChildren<QPushButton*>()) {
+                hasClose |= control->text() == QStringLiteral("Close") && control->isVisible();
+            }
+            EXPECT_TRUE(hasClose);
+            dialog->close();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            break;
+        }
+    }
+}
+
 } // namespace

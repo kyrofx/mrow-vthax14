@@ -6,6 +6,7 @@
 
 #include "widget/wwidget.h"
 
+class QDialog;
 class QDomNode;
 class QGridLayout;
 class QLabel;
@@ -49,6 +50,7 @@ class WHarnessPanel : public WWidget {
     QPushButton* addButton(const QString& text, const char* objectName, Action action);
     void rebuildSuggestions();
     void updateHeader();
+    QDialog* createAssistDialog(const QString& name, const QString& title, const QSize& size);
     void showAgentSettings();
     void showSetlist();
     void showMusicGeneration();
@@ -59,6 +61,7 @@ class WHarnessPanel : public WWidget {
     QWidget* m_pContent;
     QGridLayout* m_pLayout;
     QLabel* m_pStatus;
+    QLabel* m_pResponse;
     QLabel* m_pNowPlaying;
     QList<QPushButton*> m_rateButtons;
     // Suggestion rows, rebuilt on every state change.

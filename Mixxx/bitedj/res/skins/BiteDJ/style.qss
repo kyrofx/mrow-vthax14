@@ -1871,27 +1871,43 @@ WBeatSpinBox::up-button {
   background-color: #7a2622;
 }
 
-/* Native music controls inherit the appliance theme, including on light desktops. */
-#HarnessMusicDialog {
+/* All native Assist dialogs must remain legible over the fullscreen appliance. */
+QDialog[bitedjAssistDialog="true"] {
   background-color: #151515;
   color: #e5e6ea;
 }
-#HarnessMusicDialog QLabel,
-#HarnessMusicDialog QCheckBox {
+QDialog[bitedjAssistDialog="true"] QLabel,
+QDialog[bitedjAssistDialog="true"] QCheckBox {
   color: #e5e6ea;
   background-color: transparent;
 }
-#HarnessMusicDialog QPushButton,
-#HarnessMusicDialog QLineEdit,
-#HarnessMusicDialog QSpinBox,
-#HarnessMusicDialog QComboBox,
-#HarnessMusicDialog QListWidget {
+QDialog[bitedjAssistDialog="true"] QPushButton,
+QDialog[bitedjAssistDialog="true"] QLineEdit,
+QDialog[bitedjAssistDialog="true"] QSpinBox,
+QDialog[bitedjAssistDialog="true"] QComboBox,
+QDialog[bitedjAssistDialog="true"] QListWidget {
   background-color: #222222;
   color: #e5e6ea;
   border: 1px solid #855ea7;
   padding: 6px;
 }
-#HarnessMusicDialog QPushButton:disabled {
+QDialog[bitedjAssistDialog="true"] QPushButton:disabled {
   color: #777777;
   border-color: #444444;
+}
+
+QDialog[bitedjAssistDialog="true"] #AssistDialogTitle {
+  font-size: 22px;
+  font-weight: bold;
+  color: #ffffff;
+  padding-bottom: 8px;
+}
+#HarnessPanel #HarnessResponse {
+  background-color: #30203f;
+  color: #ffffff;
+  border: 2px solid #b48ed6;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 18px;
+  font-weight: bold;
 }

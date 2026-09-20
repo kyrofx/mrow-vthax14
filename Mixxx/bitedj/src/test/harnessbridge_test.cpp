@@ -14,6 +14,11 @@
 #include <QTemporaryFile>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QSignalSpy>
+#include <QLabel>
+#include <QScrollArea>
+#include <QScrollBar>
+#include "widget/wharnesspanel.h"
 
 #include "control/controlobject.h"
 #include "control/controlpushbutton.h"
@@ -510,4 +515,33 @@ TEST_F(HarnessBridgeTest, GeneratedSongImportsAndQueuesWithoutOpenDialog) {
     for (const auto& song : m_pBridge->suggestions()) {
         EXPECT_NE(path, song.path);
     }
+}
+
+TEST_F(HarnessBridgeTest, NewAdviceIsVisibleWhileScrolledAndUnchangedPollingIsQuiet) {
+    ASSERT_TRUE(m_harness.listen());
+    m_harness.replies["/api/agent"].insert("summary", "Keep the house groove; the crowd liked the last transition.");
+    startBridge();
+    ControlPushButton touch(ConfigKey("[Controls]", "touch_shift"));
+    WHarnessPanel panel;
+    panel.resize(800, 480);
+    panel.show();
+    QSignalSpy updates(m_pBridge.get(), &HarnessBridge::adviceReceived);
+    ASSERT_TRUE(waitFor([&] { return updates.count() == 1; }));
+    auto* response = panel.findChild<QLabel*>(QStringLiteral("HarnessResponse"));
+    ASSERT_NE(nullptr, response);
+    EXPECT_TRUE(response->isVisible());
+    EXPECT_TRUE(response->text().contains(QStringLiteral("Keep the house groove")));
+    auto* scroll = panel.findChild<QScrollArea*>();
+    ASSERT_NE(nullptr, scroll);
+    const QPoint position = response->mapTo(&panel, QPoint());
+    scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+    EXPECT_EQ(position, response->mapTo(&panel, QPoint()));
+    const int before = m_harness.requests("/api/agent").size();
+    m_pBridge->refreshSuggestions();
+    ASSERT_TRUE(waitFor([&] { return m_harness.requests("/api/agent").size() > before && !m_pBridge->agentBusy(); }));
+    EXPECT_EQ(1, updates.count());
+    m_harness.replies["/api/agent"].insert("summary", "Ease down after mixed crowd feedback.");
+    m_pBridge->refreshSuggestions();
+    ASSERT_TRUE(waitFor([&] { return updates.count() == 2; }));
+    EXPECT_TRUE(response->text().contains(QStringLiteral("Ease down")));
 }

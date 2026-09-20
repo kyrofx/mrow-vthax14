@@ -680,13 +680,33 @@ void HarnessBridge::requestSuggestions() {
             }
             m_rankedSuggestions.append(suggestion);
         }
-        mergeSuggestions();
         const QString modelError = reply.value(QStringLiteral("model_error")).toString();
         if (reply.value(QStringLiteral("source")).toString() == QStringLiteral("model")) {
             setStatus(Status::Model, reply.value(QStringLiteral("summary")).toString());
         } else {
             setStatus(Status::Heuristic, modelError);
         }
+        QString summary = reply.value(QStringLiteral("summary")).toString();
+        if (summary.isEmpty()) {
+            summary = m_rankedSuggestions.isEmpty() ? tr("No eligible songs found. Add or analyze more tracks.")
+                    : tr("Next: %1 — %2").arg(m_rankedSuggestions.first().title, m_rankedSuggestions.first().reason);
+        }
+        if (!modelError.isEmpty()) {
+            summary = tr("Using local recommendations: %1\n%2").arg(modelError, summary);
+        }
+        m_adviceSummary = summary;
+        QJsonArray picks;
+        for (const auto& song : m_rankedSuggestions) {
+            picks.append(QJsonObject{{"id", song.trackId}, {"reason", song.reason}});
+        }
+        const QByteArray fingerprint = QJsonDocument(QJsonObject{
+                {"session", requestedSession}, {"summary", summary}, {"picks", picks}}).toJson(QJsonDocument::Compact);
+        if (fingerprint != m_adviceFingerprint) {
+            m_adviceFingerprint = fingerprint;
+            emit adviceReceived(summary);
+            publish(tr("Agent response ready: %1").arg(summary.left(180)), false);
+        }
+        mergeSuggestions();
         emit stateChanged();
         if (m_suggestionsDirty) {
             requestSuggestions();
