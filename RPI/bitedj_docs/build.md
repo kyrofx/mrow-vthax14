@@ -23,7 +23,7 @@ Build from the full MROW checkout (`Mixxx/bitedj`) so CMake can embed
 `../../harness/src`. For a standalone fork checkout, add
 `-DBITEDJ_AGENT_SOURCE_DIR=/absolute/path/to/mrow/harness/src` below.
 The deployed app needs Python 3.9+ but no source checkout or HTTP service.
-Optional [OpenRouter and ElevenLabs key injection](#inject-openrouter-and-elevenlabs-keys)
+Optional [Google Cloud Gemini and ElevenLabs key injection](#inject-google-cloud-gemini-and-elevenlabs-keys)
 uses a private install-time file. Keys are not CMake variables or embedded in the binary.
 
 ```bash
@@ -124,7 +124,7 @@ sudo udevadm control --reload-rules
 sudo ln -sfn /usr/local/bin/mixxx /usr/local/bin/bitedj
 ```
 
-## Inject OpenRouter and ElevenLabs keys
+## Inject Google Cloud Gemini and ElevenLabs keys
 
 Provision both keys during build/deploy so the embedded agent loads them at each
 startup. The credential file stays outside the repository and build image.
@@ -138,18 +138,21 @@ Create a private config using hidden prompts:
 python3 RPI/scripts/agent-config.py
 ```
 
-Enter the OpenRouter key, next-song model, setlist model, and ElevenLabs key.
-Both key prompts hide input. Model IDs default to `openrouter/auto`. The ElevenLabs
-prompt is optional: leaving it blank creates an OpenRouter-only config, compatible
+Use a Vertex AI express-mode API key (not an AI Studio key). Replace any old
+OpenRouter credentials and model IDs in your private config.
+
+Enter the Google Cloud Gemini key, next-song model, setlist model, and ElevenLabs key.
+Both key prompts hide input. Model IDs default to `gemini-2.5-flash`. The ElevenLabs
+prompt is optional: leaving it blank creates a Google Cloud Gemini-only config, compatible
 with previous installs.
 
 The default output is `~/.config/mrow-build/agent.json`. Its fields are:
 
 ```json
 {
-  "api_key": "<OpenRouter key>",
-  "next_model": "openrouter/auto",
-  "plan_model": "openrouter/auto",
+  "api_key": "<Google Cloud Gemini key>",
+  "next_model": "gemini-2.5-flash",
+  "plan_model": "gemini-2.5-flash",
   "elevenlabs_api_key": "<ElevenLabs key>"
 }
 ```
@@ -194,7 +197,7 @@ full MROW checkout for this step.
 ### Replace an existing config
 
 The interactive command refuses to overwrite files. To add ElevenLabs to an
-existing OpenRouter setup, create a new file and enter both keys and your desired
+existing Google Cloud Gemini setup, create a new file and enter both keys and your desired
 models again:
 
 ```bash
@@ -219,7 +222,7 @@ remove ElevenLabs), or remove the file to disable all provisioned credentials.
 
 ### Verify startup
 
-After restarting, **Assist → Models** should report provisioned OpenRouter
+After restarting, **Assist → Models** should report provisioned Google Cloud Gemini
 settings. **Assist → Generate song** should report a configured key with
 provisioned keys reloading on restart. Neither screen displays the stored keys.
 Configuration loading does not verify provider authentication. To verify music

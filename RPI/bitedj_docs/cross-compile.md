@@ -123,7 +123,7 @@ Three properties of it worth relying on:
 
 It never clobbers device-local wiring. The agent is embedded in the Mixxx binary;
 no separate harness service is installed. Optional `--agent-config FILE` provisions
-OpenRouter credentials/models through a private SSH pipe; without that flag,
+Google Cloud Gemini credentials/models through a private SSH pipe; without that flag,
 device credentials are untouched. See [provisioning](../../harness/README.md#optional-builddeploy-provisioning).
 
 `/usr/local` is root-owned and ssh cannot write there, so everything is staged

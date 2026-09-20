@@ -271,26 +271,26 @@ void WHarnessPanel::showAgentSettings() {
     }
     auto* dialog = new QDialog(this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(tr("Agent models · OpenRouter"));
+    dialog->setWindowTitle(tr("Agent models · Google Cloud Gemini"));
     dialog->resize(640, 420);
     auto* layout = new QVBoxLayout(dialog);
     auto* note = new QLabel(tr("A provisioned key loads automatically; otherwise enter it for this run. "
                               "Runtime changes stay in memory. Song metadata and crowd ratings are sent "
-                              "to OpenRouter as advice updates; audio and paths stay local."), dialog);
+                              "to Google Cloud Gemini as advice updates; audio and paths stay local."), dialog);
     note->setWordWrap(true);
     layout->addWidget(note);
     auto* form = new QFormLayout;
     auto* key = new QLineEdit(dialog);
     key->setEchoMode(QLineEdit::Password);
-    key->setPlaceholderText(tr("OpenRouter API key"));
+    key->setPlaceholderText(tr("Vertex AI express-mode API key"));
     auto* quick = new QComboBox(dialog);
     auto* planner = new QComboBox(dialog);
     quick->setEditable(true);
     planner->setEditable(true);
     quick->setInsertPolicy(QComboBox::NoInsert);
     planner->setInsertPolicy(QComboBox::NoInsert);
-    quick->setEditText(QStringLiteral("openrouter/auto"));
-    planner->setEditText(QStringLiteral("openrouter/auto"));
+    quick->setEditText(QStringLiteral("gemini-2.5-flash"));
+    planner->setEditText(QStringLiteral("gemini-2.5-flash"));
     form->addRow(tr("API key"), key);
     form->addRow(tr("Next-song model"), quick);
     form->addRow(tr("Setlist model"), planner);
@@ -321,15 +321,15 @@ void WHarnessPanel::showAgentSettings() {
                     planner->setEditText(reply.value(QStringLiteral("plan_model")).toString());
                     key->setPlaceholderText(QObject::tr("Leave blank to keep the current runtime key"));
                     status->setText(reply.value(QStringLiteral("provisioned")).toBool()
-                                    ? QObject::tr("Provisioned at install. Runtime changes reset on restart. OpenRouter bills model use.")
-                                    : QObject::tr("Configured for this run. OpenRouter bills model use."));
+                                    ? QObject::tr("Provisioned at install. Runtime changes reset on restart. Google Cloud Gemini bills model use.")
+                                    : QObject::tr("Configured for this run. Google Cloud Gemini bills model use."));
                 } else if (!reply.value(QStringLiteral("provision_error")).toString().isEmpty()) {
                     status->setText(reply.value(QStringLiteral("provision_error")).toString());
                 }
             });
     connect(catalog, &QPushButton::clicked, dialog, [=] {
         catalog->setEnabled(false);
-        status->setText(tr("Loading OpenRouter models…"));
+        status->setText(tr("Loading Gemini suggestions…"));
         bridge->agentRequest(QStringLiteral("/api/agent/models"), {}, dialog, [=](const QJsonObject& reply) {
             catalog->setEnabled(true);
             if (reply.contains(QStringLiteral("error"))) {

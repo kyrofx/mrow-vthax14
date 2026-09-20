@@ -10,8 +10,13 @@ from unittest.mock import patch
 
 import test_harness  # noqa: F401
 from harness import Harness, make_handler
-from model import ModelClient, ModelConfig
-from test_integration import FakeEndpoint, FakeResponse, openai_reply, drive_track
+from model import ModelClient, ModelConfig, ModelError, response_text, load_config
+from test_integration import FakeEndpoint, drive_track
+
+
+def gemini_reply(picks=None, content=None):
+    return {'candidates': [{'finishReason': 'STOP', 'content': {'parts': [
+        {'text': content if content is not None else json.dumps({'picks': picks})}]}}]}
 
 
 class AgentTests(unittest.TestCase):
@@ -25,22 +30,22 @@ class AgentTests(unittest.TestCase):
         self.temp.cleanup()
 
     def model(self, picks=None, content=None):
-        endpoint = FakeEndpoint(openai_reply(picks or [{'id': 'c2', 'reason': 'Fits the room'}]))
+        endpoint = FakeEndpoint(gemini_reply(picks or [{'id': 'c2', 'reason': 'Fits the room'}]))
         if content is not None:
-            endpoint.reply = {'choices': [{'message': {'content': content}}]}
-        client = ModelClient(ModelConfig('openrouter', 'test/fast', 'private-key',
-                             'https://openrouter.ai/api/v1'), endpoint)
+            endpoint.reply = gemini_reply(content=content)
+        client = ModelClient(ModelConfig('gemini', 'gemini-test-fast', 'private-key',
+                             'https://aiplatform.googleapis.com/v1'), endpoint)
         self.h.agent.clients = {'next': client, 'plan': client}
         return endpoint
 
     def test_runtime_key_never_saved_or_returned_and_roles_distinct(self):
         status = self.h.agent.configure({'api_key': 'runtime-secret',
-                    'next_model': 'test/fast', 'plan_model': 'test/planner'})
+                    'next_model': 'gemini-test-fast', 'plan_model': 'gemini-test-planner'})
         self.assertTrue(status['connected'])
-        self.assertEqual(self.h.agent.client('plan')[0].config.model, 'test/planner')
+        self.assertEqual(self.h.agent.client('plan')[0].config.model, 'gemini-test-planner')
         self.assertNotIn('runtime-secret', json.dumps(status))
         self.assertNotIn(b'runtime-secret', self.path.read_bytes())
-        self.h.agent.configure({'next_model': 'test/new', 'plan_model': 'test/planner'})
+        self.h.agent.configure({'next_model': 'gemini-test-new', 'plan_model': 'gemini-test-planner'})
         self.assertEqual(self.h.agent.client('next')[0].config.api_key, 'runtime-secret')
         self.assertFalse(Harness(self.path).agent.settings()['connected'])
         self.h.agent.configure({'disconnect': True})
@@ -55,22 +60,50 @@ class AgentTests(unittest.TestCase):
 
     def test_distinct_models_used_for_next_and_planning(self):
         endpoint = self.model()
-        planner_endpoint = FakeEndpoint(openai_reply([{'id': 'c1', 'reason': 'Start smoothly'}]))
-        self.h.agent.clients['plan'] = ModelClient(ModelConfig('openrouter', 'test/planner', 'key',
-                        'https://openrouter.ai/api/v1'), planner_endpoint)
+        planner_endpoint = FakeEndpoint(gemini_reply([{'id': 'c1', 'reason': 'Start smoothly'}]))
+        self.h.agent.clients['plan'] = ModelClient(ModelConfig('gemini', 'gemini-test-planner', 'key',
+                        'https://aiplatform.googleapis.com/v1'), planner_endpoint)
         self.h.agent.run('live', {'count': 3})
         self.h.agent.run('live', {'action': 'generate', 'count': 3})
-        self.assertEqual(endpoint.requests[0][1]['model'], 'test/fast')
-        self.assertEqual(planner_endpoint.requests[0][1]['model'], 'test/planner')
+        self.assertEqual(endpoint.requests[0][0].full_url.split('/')[-1], 'gemini-test-fast:generateContent')
+        self.assertEqual(planner_endpoint.requests[0][0].full_url.split('/')[-1], 'gemini-test-planner:generateContent')
 
-    def test_catalog_fetch_is_public_and_filters_nontext_models(self):
-        body = {'data': [{'id': 'test/text', 'name': 'Text', 'pricing': {'prompt': '0.001'},
-                          'architecture': {'output_modalities': ['text']}},
-                         {'id': 'test/image', 'architecture': {'output_modalities': ['image']}}]}
-        with patch('agent.urllib.request.urlopen', return_value=FakeResponse(json.dumps(body).encode())) as fetch:
+    def test_bundled_models_do_not_require_network_or_credentials(self):
+        with patch('urllib.request.urlopen') as fetch:
             result = self.h.agent.models()
-        self.assertEqual([m['id'] for m in result['models']], ['test/text'])
-        self.assertEqual(fetch.call_args.args, ('https://openrouter.ai/api/v1/models',))
+        self.assertIn('gemini-2.5-flash', [m['id'] for m in result['models']])
+        fetch.assert_not_called()
+
+    def test_gemini_environment_and_json_request(self):
+        config = load_config({'MROW_MODEL_PROVIDER': 'gemini',
+                              'MROW_MODEL': 'gemini-2.5-flash',
+                              'MROW_MODEL_API_KEY': 'secret'}, env_file=None)
+        endpoint = FakeEndpoint(gemini_reply(content='{}'))
+        self.assertEqual(ModelClient(config, endpoint).complete('input', 'system'), '{}')
+        request, body, _ = endpoint.requests[0]
+        self.assertNotIn('secret', request.full_url)
+        self.assertIsNone(request.get_header('Authorization'))
+        self.assertEqual(body['systemInstruction']['parts'][0]['text'], 'system')
+        self.assertEqual(body['generationConfig']['responseMimeType'], 'application/json')
+
+    def test_gemini_rejects_blocked_truncated_and_malformed_responses(self):
+        for reply in ({}, {'promptFeedback': {'blockReason': 'SAFETY'}},
+                      {'candidates': []}, {'candidates': [None]},
+                      {'candidates': [{'finishReason': 'MAX_TOKENS'}]},
+                      {'candidates': [{'finishReason': 'SAFETY'}]},
+                      {'candidates': [{'finishReason': 'STOP', 'content': {'parts': []}}]}):
+            with self.subTest(reply=reply), self.assertRaises(ModelError):
+                response_text('gemini', reply)
+        reply = gemini_reply(content='{}')
+        reply['candidates'][0]['content']['parts'].insert(0, {'thought': True, 'text': 'internal'})
+        self.assertEqual(response_text('gemini', reply), '{}')
+
+    def test_gemini_blocked_response_falls_back_to_local(self):
+        endpoint = self.model()
+        endpoint.reply = {'promptFeedback': {'blockReason': 'SAFETY'}}
+        result = self.h.agent.run('live', {'count': 3})
+        self.assertNotEqual(result['source'], 'model')
+        self.assertTrue(result['tracks'])
 
     def test_play_exclusions_are_scoped_to_session(self):
         first = self.h.agent.run('one', {'action': 'generate', 'count': 3})
@@ -80,16 +113,16 @@ class AgentTests(unittest.TestCase):
         self.assertIn(first['tracks'][0]['id'], [t['id'] for t in self.h.recommend('two', 100)])
         self.assertIsNotNone(second['plan'])
 
-    def test_model_request_uses_openrouter_and_keeps_paths_private(self):
+    def test_model_request_uses_gemini_and_keeps_paths_private(self):
         endpoint = self.model()
         play = self.h.record_play(drive_track(0, 120)['id'], 'live', bpm=126)['play_id']
         self.h.rate(drive_track(0, 120)['id'], 'live', 'bad', play)
         result = self.h.agent.run('live', {'action': 'generate', 'count': 4})
         self.assertEqual(result['source'], 'model')
         request, body, _ = endpoint.requests[0]
-        self.assertEqual(request.full_url, 'https://openrouter.ai/api/v1/chat/completions')
-        self.assertEqual(request.get_header('Authorization'), 'Bearer private-key')
-        sent = body['messages'][1]['content']
+        self.assertEqual(request.full_url, 'https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-test-fast:generateContent')
+        self.assertEqual(request.get_header('X-goog-api-key'), 'private-key')
+        sent = body['contents'][0]['parts'][0]['text']
         for private in ('uuid-1', '/media/', 'Music/', 'private-key'):
             self.assertNotIn(private, sent)
         self.assertIn('"performance_bpm": 126', sent)
@@ -115,7 +148,7 @@ class AgentTests(unittest.TestCase):
         new = self.h.agent.run('live', {})
         self.assertNotEqual(new['basis'], old['basis'])
         self.assertEqual(len(endpoint.requests), 2)
-        sent = json.loads(endpoint.requests[-1][1]['messages'][1]['content'])
+        sent = json.loads(endpoint.requests[-1][1]['contents'][0]['parts'][0]['text'])
         self.assertEqual(sent['played'][-1]['crowd'], 'bad')
         self.assertTrue(sent['previous_plan'])
         self.h.agent.run('live', {})

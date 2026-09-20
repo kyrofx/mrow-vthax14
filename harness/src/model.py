@@ -1,7 +1,7 @@
 """Optional cloud model that reorders the heuristic's candidates. Standard library only.
 
-Speaks either the OpenAI chat-completions protocol or the Anthropic Messages
-protocol, so any compatible endpoint works. The model only reorders tracks the
+Speaks Gemini generateContent, OpenAI chat-completions or Anthropic Messages.
+The model only reorders tracks the
 heuristic already allowed and explains its picks; it never introduces a track,
 and any failure (no network, timeout, refusal, malformed output) is reported to
 the caller, which keeps the heuristic order. Offline is the normal case on a
@@ -9,15 +9,16 @@ WiFi-only device that moves between venues.
 """
 import json
 import os
+import re
 import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-PROVIDERS = ('openai', 'anthropic', 'openrouter')
+PROVIDERS = ('openai', 'anthropic', 'gemini')
 DEFAULT_BASE_URLS = {'openai': 'https://api.openai.com/v1', 'anthropic': 'https://api.anthropic.com',
-                     'openrouter': 'https://openrouter.ai/api/v1'}
+                     'gemini': 'https://aiplatform.googleapis.com/v1'}
 DEFAULT_ENV_FILE = Path('~/.config/mrow/harness.env').expanduser()
 
 SYSTEM_PROMPT = """You help a DJ choose the next song during a live set.
@@ -87,7 +88,7 @@ def load_config(environ=None, env_file=DEFAULT_ENV_FILE):
     if not (provider or model or api_key):
         return None
     if provider not in PROVIDERS:
-        raise ValueError('MROW_MODEL_PROVIDER must be openai, anthropic or openrouter')
+        raise ValueError('MROW_MODEL_PROVIDER must be openai, anthropic or gemini')
     if not model or not api_key:
         raise ValueError('MROW_MODEL and MROW_MODEL_API_KEY are both required')
     try:
@@ -138,7 +139,16 @@ class ModelClient:
 
     def complete(self, user_message, system_prompt=SYSTEM_PROMPT):
         c = self.config
-        if c.provider == 'anthropic':
+        if c.provider == 'gemini':
+            if not re.fullmatch(r'gemini-[A-Za-z0-9._-]+', c.model):
+                raise ModelError('Enter a Gemini model ID, such as gemini-2.5-flash')
+            url = c.base_url + '/publishers/google/models/' + c.model + ':generateContent'
+            headers = {'x-goog-api-key': c.api_key}
+            body = {'systemInstruction': {'parts': [{'text': system_prompt}]},
+                    'contents': [{'role': 'user', 'parts': [{'text': user_message}]}],
+                    'generationConfig': {'maxOutputTokens': 8192,
+                                         'responseMimeType': 'application/json'}}
+        elif c.provider == 'anthropic':
             url = c.base_url + '/v1/messages'
             headers = {'x-api-key': c.api_key, 'anthropic-version': '2023-06-01'}
             body = {'model': c.model, 'max_tokens': 4000, 'system': system_prompt,
@@ -150,8 +160,6 @@ class ModelClient:
             headers = {'Authorization': 'Bearer ' + c.api_key}
             body = {'model': c.model, 'max_tokens': 4000, 'messages': [{'role': 'system', 'content': system_prompt},
                                                    {'role': 'user', 'content': user_message}]}
-            if c.provider == 'openrouter':
-                headers['X-Title'] = 'MROW Mixxx Agent'
         request = urllib.request.Request(url, json.dumps(body).encode(), method='POST',
                                          headers={'Content-Type': 'application/json', **headers})
         try:
@@ -179,6 +187,20 @@ def describe(track):
 def response_text(provider, reply):
     if not isinstance(reply, dict):
         raise ModelError('Model returned an unexpected response')
+    if provider == 'gemini':
+        try:
+            candidate = reply['candidates'][0]
+            if candidate.get('finishReason') != 'STOP':
+                raise ModelError('Model response blocked or incomplete')
+            parts = candidate['content']['parts']
+            text = ''.join(p['text'] for p in parts
+                           if isinstance(p, dict) and isinstance(p.get('text'), str)
+                           and not p.get('thought'))
+            if not text:
+                raise ModelError('Model returned no text')
+            return text
+        except (KeyError, IndexError, TypeError, AttributeError):
+            raise ModelError('Model returned an unexpected response') from None
     if provider == 'anthropic':
         if reply.get('stop_reason') == 'refusal':
             raise ModelError('Model declined the request')

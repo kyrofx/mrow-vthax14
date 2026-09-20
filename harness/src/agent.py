@@ -6,8 +6,6 @@ process exit. A single planning lock coalesces simultaneous Mixxx/web refreshes.
 import hashlib
 import json
 import threading
-import urllib.error
-import urllib.request
 import uuid
 
 from model import DEFAULT_BASE_URLS, ModelClient, ModelConfig, ModelError, describe, parse_picks
@@ -69,28 +67,24 @@ class Agent:
                 if not key and self.clients and self.clients.get('next'):
                     key = self.clients['next'].config.api_key
                 if not key:
-                    raise ValueError('Enter an OpenRouter API key')
+                    raise ValueError('Enter a Google Cloud Vertex AI API key')
                 models = [data.get('next_model'), data.get('plan_model')]
                 if any(not isinstance(m, str) or not m.strip() or len(m) > 200 for m in models):
                     raise ValueError('Select a model for next songs and setlists')
-                self.clients = {role: ModelClient(ModelConfig('openrouter', model.strip(), key,
-                                DEFAULT_BASE_URLS['openrouter'], timeout=25, candidates=30))
+                self.clients = {role: ModelClient(ModelConfig('gemini', model.strip(), key,
+                                DEFAULT_BASE_URLS['gemini'], timeout=25, candidates=30))
                                 for role, model in zip(('next', 'plan'), models)}
             self.version = uuid.uuid4().hex
         return self.settings()
 
     @staticmethod
     def models():
-        """Public catalog; no credential is needed or sent."""
-        try:
-            with urllib.request.urlopen(DEFAULT_BASE_URLS['openrouter'] + '/models', timeout=10) as response:
-                data = json.loads(response.read())
-            return {'models': [{'id': m['id'], 'name': m.get('name', m['id']),
-                                'pricing': m.get('pricing', {})}
-                               for m in data['data'] if isinstance(m, dict) and isinstance(m.get('id'), str)
-                               and 'text' in m.get('architecture', {}).get('output_modalities', ['text'])]}
-        except (OSError, ValueError, KeyError, TypeError):
-            raise ValueError('OpenRouter catalog unavailable. Enter model IDs manually.') from None
+        """Bundled suggestions; model availability depends on the Cloud account."""
+        return {'models': [{'id': model, 'name': name, 'pricing': {}}
+                           for model, name in (
+                               ('gemini-2.5-flash', 'Gemini 2.5 Flash'),
+                               ('gemini-2.5-pro', 'Gemini 2.5 Pro'),
+                               ('gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite'))]}
 
     def client(self, role):
         with self.settings_lock:

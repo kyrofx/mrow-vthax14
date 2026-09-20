@@ -183,7 +183,7 @@ $('models').onclick = () => action(async () => {
     const option = document.createElement('option'); option.value = model.id; option.label = model.name;
     $('modelCatalog').append(option);
   }
-  $('modelNote').textContent = `${result.models.length} models loaded. Select or type a model ID. Pricing varies by model.`;
+  $('modelNote').textContent = `${result.models.length} model suggestions loaded. Availability and pricing depend on your Google Cloud account.`;
   message('Model catalog loaded.');
 });
 $('connect').onclick = () => action(async () => {
