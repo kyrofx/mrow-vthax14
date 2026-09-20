@@ -139,8 +139,10 @@ Verified on the Pi itself:
   filesystem UUID, all marked available. Every one carries a Camelot key and a
   duration, 823 distinct BPMs, artists on all but 73. Genres on only 12 — that
   drive's export simply has few.
-- **The harness service** runs and answers `/health`, with its database in
-  `~/.mixxx/harness/`.
+- **The harness service** ran and answered `/health`, with its database in
+  `~/.mixxx/harness/`. That service has since been retired: the agent now runs
+  inside Mixxx as a child process, with no port and nothing to start. The
+  database location is unchanged.
 - **The crowd buttons service** runs and its virtual MIDI port is live on the
   ALSA sequencer (`client 129: 'MROW Crowd Buttons'`). `python3-rtmidi` had to
   be installed; the deploy script now does that when missing.

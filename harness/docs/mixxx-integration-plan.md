@@ -3,10 +3,14 @@
 Connects the harness to the BiteDJ fork (`Mixxx/bitedj`) on the Raspberry Pi,
 with suggestions refined by a cloud model.
 
-**Status: built.** What was actually implemented, and how to use it, is in
-[mixxx-integration.md](mixxx-integration.md); what has and has not been
-verified is in [verification.md](verification.md). Still open: the GPIO
-hardware, a real cloud endpoint, and everything measured on the device. Supersedes the "Proposed fork
+**Status: built, then superseded.** This plan chose a sidecar process talking
+HTTP on localhost. The agent now runs *inside* Mixxx instead — its Python
+sources are compiled into the binary and run as a child process, with no port
+and no service to start. The reasoning that survived that change (what counts
+as a play, how tracks and drives are named, what the `[Harness]` controls are)
+is unchanged and documented in [mixxx-integration.md](mixxx-integration.md),
+which is authoritative. This file is kept for the decisions behind those, not
+as a description of how it works. Supersedes the "Proposed fork
 connection" section of [mixxx-integration.md](mixxx-integration.md) once built.
 
 ## Decisions

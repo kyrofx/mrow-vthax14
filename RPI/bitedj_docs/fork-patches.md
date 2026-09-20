@@ -16,8 +16,10 @@ checkout should be kept in step with it.
 three touch points in existing code — `src/coreservices.{h,cpp}` (constructs
 the bridge), `src/skin/legacy/legacyskinparser.cpp` (the `HarnessPanel` tag),
 `CMakeLists.txt` (sources and the test).
-**Why:** the unit suggests what to play next and records the crowd's reaction,
-against the harness sidecar in `harness/`. See
+**Why:** the unit suggests what to play next and records the crowd's reaction.
+The agent is built into the binary: the Python sources in `harness/src` are
+compiled in as Qt resources (`res/agent.qrc.in`) and run as a child process
+(`harnessworker.cpp`) — no port, no service. See
 [`harness/docs/mixxx-integration.md`](../../harness/docs/mixxx-integration.md).
 
 Almost all of it is new files, so an upstream merge should only conflict in

@@ -7,7 +7,7 @@
 #include "proto/keys.pb.h"
 
 /// Pure helpers shared by HarnessBridge and its tests: how a track, a drive
-/// and a set are named when talking to the harness sidecar.
+/// and a set are named when talking to the agent worker.
 namespace mixxx::harness {
 
 /// A mounted removable drive, as the harness knows it.

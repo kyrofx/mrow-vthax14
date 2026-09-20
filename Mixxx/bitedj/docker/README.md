@@ -74,25 +74,12 @@ open vnc://localhost:5901                    # note: port 5901
   drive handling need testing on the device.
 - **Settings:** the app's `~/.mixxx` persists in the `settings-pi` /
   `settings-ubuntu` volumes.
-- **The Assist tab:** the run services also start the MROW DJ harness inside
-  the container when this checkout sits in the MROW repository (it is mounted
-  at `/harness`), so the tab has something to talk to. Seed it with a few songs
-  to see suggestions:
-
-  ```sh
-  docker compose exec pi-run python3 - <<'PY'
-  import json, urllib.request
-  tracks = [{"id": f"demo:{i}", "title": t, "artist": a, "bpm": b, "genre": "house",
-             "camelot": "8A", "path": f"/tmp/{i}.mp3", "duration": 300}
-            for i, (t, a, b) in enumerate([("Night Drive", "Kolsch", 122.0),
-                                           ("Faded Lights", "Bicep", 124.0),
-                                           ("Pressure", "Objekt", 126.0)])]
-  urllib.request.urlopen(urllib.request.Request(
-      "http://127.0.0.1:8765/api/library/sync",
-      json.dumps({"scope": "demo", "complete": True, "tracks": tracks}).encode(),
-      {"Content-Type": "application/json"})).read()
-  PY
-  ```
+- **The Assist tab:** needs no setup. The agent's Python sources are compiled
+  into the binary and run as a child process, so the tab works in the
+  container exactly as it does on the device. With no drive attached there is
+  nothing to suggest from, so it shows its empty state; the status line and
+  the crowd buttons still exercise. (`../../harness` is mounted at `/harness`
+  for convenience when editing the agent — the app does not read it.)
 - **Cleanup:** `docker compose down -v` removes all build trees, ccache and
   settings.
 

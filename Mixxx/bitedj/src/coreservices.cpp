@@ -564,7 +564,7 @@ void CoreServices::initialize(QApplication* pApp) {
     // selection here is also what restores the grid at startup.
     m_pSamplerDrive = std::make_unique<SamplerDrive>(pConfig, m_pPlayerManager.get());
 
-    // Bite DJ: the Assist tab's link to the harness sidecar (play history,
+    // Bite DJ: the Assist tab's link to the bundled agent worker (play history,
     // crowd ratings, next-song suggestions). Constructed after SystemSettings,
     // whose drive events it follows, and before the skin parses, so the
     // [Harness] controls exist for skin buttons and controller mappings (the

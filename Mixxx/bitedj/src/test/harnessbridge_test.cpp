@@ -1,4 +1,4 @@
-// Tests for the Bite DJ link to the MROW DJ harness sidecar: how tracks, drives
+// Tests for the Bite DJ link to the MROW DJ agent: how tracks, drives
 // and sets are named (harnessids), and the bridge's conversation with a fake
 // harness — plays, ratings made before a play is acknowledged, retries while
 // the harness is down, suggestions, skips, and starting a new set.
