@@ -814,6 +814,43 @@ WBeatSpinBox::up-button {
   image: url(skin:icons/quantize.svg) no-repeat center center;
 }
 
+/* Stems. Q and keylock draw their glyph from an SVG; the S is button text, so
+ * it stays sharp at any size and takes the active colour below for free. */
+#WaveformInfo_StemButton {
+  color: #7fb2d6;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+#WaveformInfo_StemButton[value="1"] {
+  background-color: #855ea7;
+  border-color: #855ea7;
+  color: #e7e8e9;
+}
+
+/* The stem buttons, in the overview strip's place while S is on. Lit means
+ * the stem is playing; unlit means it has been dropped out of the mix. */
+#StemPanel {
+  background-color: #0a0a0a;
+  padding: 2px;
+}
+
+#StemPanel #StemButton {
+  background-color: #151515;
+  border: 2px solid #32323c;
+  border-radius: 4px;
+  color: #5c5e61;
+  font-size: 13px;
+  font-weight: bold;
+  margin: 2px;
+}
+
+#StemPanel #StemButton[value="1"] {
+  background-color: #2d6488;
+  border-color: #7fb2d6;
+  color: #e5e6ea;
+}
+
 /************************************************************************/
 /*     Tabs                                                             */
 /************************************************************************/

@@ -94,6 +94,17 @@
                     <SetVariable name="LeftConnectionControl">[Channel<Variable name="channel"/>],quantize</SetVariable>
                   </Template>
 
+                  <!-- Stems: swaps this deck's overview strip for its stem
+                       buttons (see deck.xml). Sits with Q and keylock because
+                       it is the same kind of per-deck toggle. -->
+                  <Template src="skin:templates/toggle_button.xml">
+                    <SetVariable name="ObjectName">WaveformInfo_StemButton</SetVariable>
+                    <SetVariable name="Size">30me,30f</SetVariable>
+                    <SetVariable name="State0Text">S</SetVariable>
+                    <SetVariable name="State1Text">S</SetVariable>
+                    <SetVariable name="LeftConnectionControl">[Skin],stem_panel_<Variable name="channel"/></SetVariable>
+                  </Template>
+
                   <Template src="skin:templates/toggle_button.xml">
                     <SetVariable name="TooltipId">keylock</SetVariable>
                     <SetVariable name="ObjectName">WaveformInfo_KeylockButton</SetVariable>

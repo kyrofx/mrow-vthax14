@@ -729,6 +729,7 @@ add_library(mixxx-lib STATIC EXCLUDE_FROM_ALL
   src/harness/harnessworker.cpp
   src/harness/harnessids.cpp
   src/mixer/samplerdrive.cpp
+  src/mixer/stemcontrols.cpp
   src/mixxxapplication.cpp
   src/mixxxmainwindow.cpp
   src/musicbrainz/chromaprinter.cpp

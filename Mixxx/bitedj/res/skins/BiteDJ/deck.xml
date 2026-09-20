@@ -457,10 +457,21 @@
           <BindProperty>visible</BindProperty>
         </Connection>
       </WidgetGroup>
+      <!-- The overview strip and the stem buttons occupy the same 50f: the S
+           button in waveform.xml writes [Skin],stem_panel_<channel>, and each
+           of the two binds its own `visible` to it, inverted for the overview.
+           A WidgetStack would be the natural shape, but its currentpage
+           attribute is read raw by the skin parser, so it cannot carry the
+           channel variable and both decks would share one panel. -->
       <WidgetGroup>
         <ObjectName>DeckOverviewContainer</ObjectName>
         <Layout>vertical</Layout>
         <Size>0me,50f</Size>
+        <Connection>
+          <ConfigKey>[Skin],stem_panel_<Variable name="channel"/></ConfigKey>
+          <Transform><Not/></Transform>
+          <BindProperty>visible</BindProperty>
+        </Connection>
         <Children>
           <Overview>
             <ObjectName>DeckOverview</ObjectName>
@@ -635,6 +646,11 @@
           </Overview>
         </Children>
       </WidgetGroup>
+
+      <Template src="skin:templates/stem_panel.xml">
+        <SetVariable name="channel"><Variable name="channel"/></SetVariable>
+      </Template>
+
     </Children>
   </WidgetGroup>
 </Template>
