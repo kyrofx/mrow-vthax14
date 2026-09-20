@@ -4,6 +4,7 @@
 
 QT_FORWARD_DECLARE_CLASS(QProgressBar);
 QT_FORWARD_DECLARE_CLASS(QLabel);
+QT_FORWARD_DECLARE_CLASS(QGraphicsOpacityEffect);
 
 // This is a widget that is shown in the Mixxx main window
 // until the skin is ready to use.
@@ -40,10 +41,20 @@ class LaunchImage: public QWidget {
     LaunchImage(QWidget* pParent, const QString& styleSheet);
     ~LaunchImage() override = default;
     void progress(int value, const QString& serviceName);
+    // Keep covering the loaded skin until the minimum display time has elapsed.
+    void finishWhenReady();
 
   protected:
     void paintEvent(QPaintEvent*) override;
+    void showEvent(QShowEvent*) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
   private:
     QProgressBar* m_pProgressBar;
+    QGraphicsOpacityEffect* m_pContentOpacity;
+    bool m_started = false;
+    bool m_minimumElapsed = false;
+    bool m_ready = false;
+    bool m_fadingOut = false;
+    void tryFadeOut();
 };

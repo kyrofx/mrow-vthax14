@@ -397,7 +397,19 @@ void MixxxMainWindow::initialize() {
     // this has to be after the OpenGL widgets are created or depending on a
     // million different variables the first waveform may be horribly
     // corrupted. See bug 521509 -- bkgood ?? -- vrince
+    // QMainWindow would delete the old central widget. Keep the launch image
+    // as an overlay on the ready skin so its hold/fade never blocks startup.
+    auto* launchOverlay = m_pLaunchImage;
+    if (launchOverlay && m_pCentralWidget != launchOverlay) {
+        takeCentralWidget();
+        launchOverlay->setParent(m_pCentralWidget);
+    } else {
+        launchOverlay = nullptr;
+    }
     setCentralWidget(m_pCentralWidget);
+    if (launchOverlay) {
+        launchOverlay->finishWhenReady();
+    }
 
 #ifndef __APPLE__
     // Bite DJ: the menu bar auto-hides by default (hide_menubar defaults
@@ -410,8 +422,7 @@ void MixxxMainWindow::initialize() {
     // otherwise it would shift the launch image shortly before the skin is visible.
     m_pMenuBar->show();
 
-    // The launch image widget is automatically disposed, but we still have a
-    // pointer to it.
+    // The overlay now owns its fade-out and deletes itself when finished.
     m_pLaunchImage = nullptr;
 
     connect(pPlayerManager.get(),
