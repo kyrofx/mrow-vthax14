@@ -12,14 +12,15 @@ import tempfile
 
 def validate(data):
     required = {'api_key', 'next_model', 'plan_model'}
-    if (not isinstance(data, dict) or not required <= set(data)
+    if (not isinstance(data, dict) or not data
+            or (bool(required & set(data)) and not required <= set(data))
             or set(data) - required - {'elevenlabs_api_key'}):
         raise ValueError('Expected api_key, next_model, plan_model and optional elevenlabs_api_key.')
     if any(not isinstance(v, str) or not v.strip() for v in data.values()):
         raise ValueError('All supplied fields must be nonempty strings.')
     if (any(len(data[k]) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in data[k])
             for k in ('api_key', 'elevenlabs_api_key') if k in data)
-            or any(len(data[k]) > 200 for k in ('next_model', 'plan_model'))):
+            or any(len(data[k]) > 200 for k in ('next_model', 'plan_model') if k in data)):
         raise ValueError('Invalid configuration.')
     return data
 

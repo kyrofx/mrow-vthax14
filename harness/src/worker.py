@@ -22,14 +22,15 @@ def read_provision(path):
             raise ValueError('Agent config must be an owner-only regular file (chmod 600).')
         config = json.load(source)
     required = {'api_key', 'next_model', 'plan_model'}
-    if (not isinstance(config, dict) or not required <= set(config)
+    if (not isinstance(config, dict) or not config
+            or (bool(required & set(config)) and not required <= set(config))
             or set(config) - required - {'elevenlabs_api_key'}):
         raise ValueError('Agent config needs api_key, next_model, plan_model and optional elevenlabs_api_key.')
     # Validate the entire file before configuring either provider.
     if (any(not isinstance(v, str) or not v.strip() for v in config.values())
             or any(len(config[k]) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in config[k])
                    for k in ('api_key', 'elevenlabs_api_key') if k in config)
-            or any(len(config[k]) > 200 for k in ('next_model', 'plan_model'))):
+            or any(len(config[k]) > 200 for k in ('next_model', 'plan_model') if k in config)):
         raise ValueError('Invalid agent configuration.')
     return config
 
@@ -39,8 +40,9 @@ def provision(harness, path):
         return
     try:
         config = read_provision(path)
-        harness.agent.configure({k: config[k] for k in ('api_key', 'next_model', 'plan_model')})
-        harness.agent.provisioned = True
+        if 'api_key' in config:
+            harness.agent.configure({k: config[k] for k in ('api_key', 'next_model', 'plan_model')})
+            harness.agent.provisioned = True
         harness.agent.provision_error = ''
         if 'elevenlabs_api_key' in config:
             harness.music.settings({'api_key': config['elevenlabs_api_key']})

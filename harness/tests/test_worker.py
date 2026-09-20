@@ -123,6 +123,23 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(replies[2]['body']['connected'])
         self.assertEqual(replies[3]['status'], 200)
 
+    def test_elevenlabs_only_provision(self):
+        data = {'elevenlabs_api_key': 'test-eleven-only'}
+        config_tool.install(data, self.config)
+        provision(self.h, self.config)
+        self.assertTrue(self.h.music.settings({})['connected'])
+        self.assertTrue(self.h.music.settings({})['provisioned'])
+        self.assertFalse(self.h.agent.settings()['connected'])
+        self.assertEqual(self.h.agent.settings()['provision_error'], '')
+        self.assertNotIn(data['elevenlabs_api_key'], json.dumps(self.h.music.settings({})))
+
+    def test_partial_openrouter_config_rejected(self):
+        for data in ({}, {'api_key': 'test'},
+                     {'elevenlabs_api_key': 'test', 'next_model': 'test/model'}):
+            with self.subTest(fields=list(data)):
+                with self.assertRaises(ValueError):
+                    config_tool.validate(data)
+
     def test_both_provider_keys_load_and_disconnect_independently(self):
         both = dict(SECRET, elevenlabs_api_key='test-eleven-private')
         config_tool.install(both, self.config)

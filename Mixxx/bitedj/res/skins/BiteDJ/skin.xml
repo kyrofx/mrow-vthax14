@@ -26,21 +26,21 @@
 	<Layout>vertical</Layout>
 
 	<LaunchImageStyle>
-      LaunchImage { background-color: #000 }
+      LaunchImage { background-color: #ffffff; }
 	  QLabel {
-	    image: url(skin:/images/bitedj_logo.png);
+	    image: url(skin:/images/MROW_V2.png);
 	    margin-bottom: 12px;
         min-width: 522px;
-        min-height: 292px;
+        min-height: 294px;
         max-width: 522px;
-        max-height: 292px;
+        max-height: 294px;
 	  }
       QProgressBar {
-	    background-color: #a7a9ac;
+	    background-color: #dff4e9;
         max-height: 8px;
 	  }
 	  QProgressBar::chunk {
-	    background-color: #c9372c;
+	    background-color: #a8c7ff;
 	  }
 	</LaunchImageStyle>
 
