@@ -11,6 +11,7 @@ class QGridLayout;
 class QLabel;
 class QPushButton;
 class SkinContext;
+class QScrollArea;
 
 // Bite DJ: the Assist tab. Shows what HarnessBridge knows: the play being
 // rated with Good / Mid / Bad, the harness's next-song suggestions (each with
@@ -23,7 +24,9 @@ class SkinContext;
 //
 // Touch handling follows WUsbList: WWidget turns touches into mouse events on
 // this widget rather than on the child buttons, so taps are hit-tested here on
-// release; a real mouse click (desktop, VNC) reaches the button directly.
+// release, while vertical drags scroll the content without activating buttons.
+// A real mouse click (desktop, VNC) reaches the button directly; wheel and
+// trackpad scrolling are handled by the scroll area.
 class WHarnessPanel : public WWidget {
     Q_OBJECT
   public:
@@ -33,6 +36,8 @@ class WHarnessPanel : public WWidget {
 
   protected:
     void mousePressEvent(QMouseEvent* e) override;
+    void mouseMoveEvent(QMouseEvent* e) override;
+    bool event(QEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;
 
   private slots:
@@ -48,6 +53,10 @@ class WHarnessPanel : public WWidget {
     void showSetlist();
     void showMusicGeneration();
 
+    void forwardToScrollBar(QMouseEvent* e);
+    enum class DragState { Idle, Pending, Scrolling, ScrollBar };
+    QScrollArea* m_pScrollArea;
+    QWidget* m_pContent;
     QGridLayout* m_pLayout;
     QLabel* m_pStatus;
     QLabel* m_pNowPlaying;
@@ -56,5 +65,8 @@ class WHarnessPanel : public WWidget {
     QList<QWidget*> m_rowWidgets;
     // Every tappable button with what it does, for the touch hit-test.
     QList<QPair<QPushButton*, Action>> m_actions;
-    bool m_pressPending;
+    DragState m_dragState = DragState::Idle;
+    QPointF m_pressGlobalPos;
+    qreal m_lastGlobalY = 0;
+    qreal m_remainingDy = 0;
 };
