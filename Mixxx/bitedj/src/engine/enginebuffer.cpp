@@ -9,6 +9,8 @@
 #include "engine/bufferscalers/enginebufferscalelinear.h"
 #include "engine/bufferscalers/enginebufferscalest.h"
 #include "engine/cachingreader/cachingreader.h"
+#include "engine/cachingreader/stemcachingreader.h"
+#include "mixer/playermanager.h"
 #include "engine/channels/enginechannel.h"
 #include "engine/controls/bpmcontrol.h"
 #include "engine/controls/clockcontrol.h"
@@ -103,7 +105,13 @@ EngineBuffer::EngineBuffer(const QString& group,
     // zero out crossfade buffer
     SampleUtil::clear(m_pCrossfadeBuffer, kMaxEngineSamples);
 
-    m_pReader = new CachingReader(group, pConfig);
+    // Bite DJ: decks read through StemCachingReader, which plays a track's
+    // pre-separated stems when it has them and is an ordinary CachingReader
+    // when it does not. Decks only: a sampler has no stem controls, and one
+    // extra reader per sampler would be 16 threads for nothing.
+    m_pReader = PlayerManager::isDeckGroup(group)
+            ? new StemCachingReader(group, pConfig)
+            : new CachingReader(group, pConfig);
     connect(m_pReader, &CachingReader::trackLoading,
             this, &EngineBuffer::slotTrackLoading,
             Qt::DirectConnection);

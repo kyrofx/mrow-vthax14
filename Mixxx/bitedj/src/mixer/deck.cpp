@@ -1,6 +1,5 @@
 #include "mixer/deck.h"
 
-#include "mixer/stemcontrols.h"
 #include "moc_deck.cpp"
 
 Deck::Deck(PlayerManager* pParent,
@@ -17,8 +16,7 @@ Deck::Deck(PlayerManager* pParent,
                   handleGroup,
                   /*defaultMainMix*/ true,
                   /*defaultHeadphones*/ false,
-                  /*primaryDeck*/ true),
-          m_pStemControls(std::make_unique<StemControls>(handleGroup.name())) {
+                  /*primaryDeck*/ true) {
 }
 
 Deck::~Deck() = default;

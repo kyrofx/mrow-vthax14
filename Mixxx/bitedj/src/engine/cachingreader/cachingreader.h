@@ -85,7 +85,7 @@ class CachingReader : public QObject {
             UserSettingsPointer _config);
     ~CachingReader() override;
 
-    void process();
+    virtual void process();
 
     enum class ReadResult {
         // No samples read and buffer untouched(!), try again later in case of a cache miss
@@ -106,16 +106,24 @@ class CachingReader : public QObject {
     // that is not in the cache. If any hints do request a chunk not in cache,
     // then wake the reader so that it can process them. Must only be called
     // from the engine callback.
-    void hintAndMaybeWake(const HintVector& hintList);
+    virtual void hintAndMaybeWake(const HintVector& hintList);
 
     // Request that the CachingReader load a new track. These requests are
     // processed in the work thread, so the reader must be woken up via wake()
     // for this to take effect.
-    void newTrack(TrackPointer pTrack);
+    virtual void newTrack(TrackPointer pTrack);
 
-    void setScheduler(EngineWorkerScheduler* pScheduler) {
+    virtual void setScheduler(EngineWorkerScheduler* pScheduler) {
         m_worker.setScheduler(pScheduler);
     }
+
+  protected:
+    /// The worker has opened a file and it is ready to read. Emits
+    /// trackLoaded() with the track the deck should show; a subclass reading
+    /// from somewhere other than the track itself overrides this.
+    virtual void onWorkerTrackLoaded(TrackPointer pTrack,
+            mixxx::audio::SampleRate trackSampleRate,
+            double trackNumSamples);
 
   signals:
     // Emitted once a new track is loaded and ready to be read from.

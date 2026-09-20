@@ -78,8 +78,12 @@ CachingReader::CachingReader(const QString& group,
     connect(&m_worker, &CachingReaderWorker::trackLoading,
             this, &CachingReader::trackLoading,
             Qt::DirectConnection);
+    // Through a slot rather than straight to the signal, so a subclass can
+    // say which track the deck was asked to play — see StemCachingReader,
+    // where the audio comes from a stem file but the deck's track is the
+    // track the DJ loaded, with its beatgrid, cues and key.
     connect(&m_worker, &CachingReaderWorker::trackLoaded,
-            this, &CachingReader::trackLoaded,
+            this, &CachingReader::onWorkerTrackLoaded,
             Qt::DirectConnection);
     connect(&m_worker, &CachingReaderWorker::trackLoadFailed,
             this, &CachingReader::trackLoadFailed,
@@ -222,6 +226,12 @@ void CachingReader::newTrack(TrackPointer pTrack) {
 }
 
 // Called from the engine thread
+void CachingReader::onWorkerTrackLoaded(TrackPointer pTrack,
+        mixxx::audio::SampleRate trackSampleRate,
+        double trackNumSamples) {
+    emit trackLoaded(pTrack, trackSampleRate, trackNumSamples);
+}
+
 void CachingReader::process() {
     ReaderStatusUpdate update;
     while (m_readerStatusUpdateFIFO.read(&update, 1) == 1) {

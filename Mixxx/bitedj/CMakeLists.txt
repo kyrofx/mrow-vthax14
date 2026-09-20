@@ -540,6 +540,7 @@ add_library(mixxx-lib STATIC EXCLUDE_FROM_ALL
   src/engine/cachingreader/cachingreader.cpp
   src/engine/cachingreader/cachingreaderchunk.cpp
   src/engine/cachingreader/cachingreaderworker.cpp
+  src/engine/cachingreader/stemcachingreader.cpp
   src/engine/channelmixer.cpp
   src/engine/channels/engineaux.cpp
   src/engine/channels/enginechannel.cpp
@@ -729,7 +730,6 @@ add_library(mixxx-lib STATIC EXCLUDE_FROM_ALL
   src/harness/harnessworker.cpp
   src/harness/harnessids.cpp
   src/mixer/samplerdrive.cpp
-  src/mixer/stemcontrols.cpp
   src/mixxxapplication.cpp
   src/mixxxmainwindow.cpp
   src/musicbrainz/chromaprinter.cpp
@@ -851,6 +851,7 @@ add_library(mixxx-lib STATIC EXCLUDE_FROM_ALL
   src/track/taglib/trackmetadata_mp4.cpp
   src/track/taglib/trackmetadata_riff.cpp
   src/track/taglib/trackmetadata_xiph.cpp
+  src/track/stemset.cpp
   src/track/track.cpp
   src/track/trackinfo.cpp
   src/track/trackmetadata.cpp
@@ -1638,6 +1639,7 @@ if(BUILD_TESTING)
     src/test/soundproxy_test.cpp
     src/test/soundsourceproviderregistrytest.cpp
     src/test/sqliteliketest.cpp
+    src/test/stems_test.cpp
     src/test/synccontroltest.cpp
     src/test/synctrackmetadatatest.cpp
     src/test/systemsettings_test.cpp
