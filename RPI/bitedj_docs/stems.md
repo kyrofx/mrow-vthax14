@@ -4,8 +4,10 @@ Play a track as two parts the DJ can drop independently: **vocals** and
 **instrumental**. Separation happens ahead of time on a workstation; the
 appliance only plays what it is given.
 
-**Status: Phase 0 measured (it passes), the rest not built.** This is the plan
-and the reasoning behind it.
+**Status: built, not yet heard.** Phase 0 measured and passed; the separation
+pass, the playback path and the panel all exist and are tested. What has not
+happened is a separated track playing through speakers on the device — see
+"What is left" at the end.
 
 ## Decisions
 
@@ -90,10 +92,16 @@ Caveats worth keeping in mind:
 - Nothing here exercises the audio callback. What is measured is the cost that
   would land in the reader threads, which is where it lands by design.
 
-## Phase 1: separation on the workstation
+## Phase 1: separation on the workstation — built
 
-- **Demucs** (`htdemucs`), run on the workstation, keeping only the vocal and
-  instrumental split (the four-stem model's other outputs are summed).
+`RPI/scripts/separate-stems.py`. Walks a drive or a list of files, skips
+tracks that already have current stems, and never runs on the Pi.
+
+- **Demucs** (`htdemucs`, `--two-stems=vocals`), keeping only the vocal and
+  instrumental split.
+- Each track is separated into a `.partial` directory and renamed into place
+  only once everything is written. A half-finished stems directory beside a
+  track is worse than none, because the device would try to play it.
 - Output beside the track on the drive:
 
   ```
@@ -117,27 +125,39 @@ Caveats worth keeping in mind:
 - A script under `RPI/scripts/` or a small tool in the MROW repo; it never
   runs on the Pi.
 
-## Phase 2: playback
+## Phase 2: playback — built
 
-- A `StemReader` sitting behind the deck's `ReadAheadManager`: two
-  `CachingReader`s, summed with per-stem gain on each read. ~5 MB and one
-  worker thread more per deck, which is nothing on 4 GB.
-- Stem discovery at track load: look for `<track>.stems/` on the same drive,
-  read the manifest, verify the hash and frame count. Anything missing or
-  mismatched means the track plays normally — a library is mostly not
-  separated, and that path must stay exactly as it is today.
-- Controls per deck: `[ChannelN],stem_vocals_enabled`,
-  `stem_instrumental_enabled`, and `[ChannelN],stem_available` for the skin
-  and mappings to read.
-- Gains cross-fade over a few milliseconds rather than switching abruptly; a
-  hard gate on a mute is audible as a click.
+`src/engine/cachingreader/stemcachingreader.cpp`, a `CachingReader` subclass
+the deck uses in place of the plain one (decks only: a sampler has no stem
+controls, and an extra reader per sampler would be sixteen threads for
+nothing).
 
-## Phase 3: on screen and on the controller — built (against stub controls)
+- It owns a second `CachingReader` for the instrumental, created the first
+  time that deck loads a stems track — a deck that never sees one never pays
+  the 5 MB and the worker thread.
+- `read()` sums the two, ramping each gain over ~5 ms so a toggle is not heard
+  as a click. Because this sits behind `ReadAheadManager`, the sum happens
+  before the scaler: one timestretcher, and the stems cannot drift apart.
+- **The deck's track stays the track.** The audio comes from the stem files,
+  but `CachingReader` now reports track loads through a virtual hook that the
+  stem reader overrides, so the deck keeps the real track's beatgrid, cues,
+  key and waveform. Getting this wrong is silent: the deck plays, and the
+  cues are simply gone.
+- Stem discovery at load (`src/track/stemset.cpp`): the manifest must be a
+  version this build understands, and must name a source file of exactly the
+  size on disk. That last check is what stops a re-encoded track playing the
+  stems of what used to be there. Anything missing or mismatched means the
+  track plays normally, and why is logged.
+- Controls per deck, owned by the reader so they exist before the skin or any
+  mapping binds to them: `[ChannelN],stem_vocals_enabled`,
+  `stem_instrumental_enabled`, `stem_available`.
+
+## Phase 3: on screen and on the controller — built
 
 The S button, the swap and the two stem buttons exist and were exercised on an
-800x480 display. The controls behind them (`src/mixer/stemcontrols.cpp`) are a
-stub: `stem_available` is always 0 and toggling a stem changes no audio, which
-is what Phase 2 fills in.
+800x480 display. They were first built against stub controls; Phase 2 replaced
+those with the real ones, which the reader owns — toggling a stem now changes
+what the deck reads.
 
 ### The S button
 
@@ -200,7 +220,25 @@ bound to `[Harness]`. Nothing in the skin is a precondition for that.
 
 ## Testing
 
-- Unit: manifest parsing and rejection (bad hash, wrong frame count, missing
-  file), stem discovery on a drive, the mix with gains at 0, 1 and mid.
-- Device: no xruns with both decks playing stems; seek, loop and scratch keep
-  the stems locked; eject mid-play; a track with no stems is unchanged.
+Automated: 15 Python tests for the separation pass (layout, staleness, the
+atomic swap, the demucs and ffmpeg commands as data) and 13 GTest cases for
+the device half — what a trustworthy stem set is, and the mixing and ramping
+of gains.
+
+End to end in the container: a track with stems beside it loads them (two
+reader workers open the two files) while the deck reports the original track;
+a track whose stems were made stale falls back to plain playback and says
+why.
+
+## What is left
+
+- **Nobody has heard it.** A real separated track, played on the device,
+  through speakers. Everything above says the right files are opened and the
+  right numbers come out; none of it says it sounds right.
+- **The separation pass has not been run for real** — demucs was never
+  invoked, only its command line checked. First run of a real track will
+  probably turn up something about how demucs names its output.
+- **No xrun measurement while actually playing stems.** Phase 0 measured
+  decode cost in isolation; the honest test is a set.
+- The S button is not yet disabled when a track has no stems, though
+  `stem_available` now carries the answer.
