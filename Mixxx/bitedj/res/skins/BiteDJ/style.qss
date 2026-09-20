@@ -822,14 +822,17 @@ WBeatSpinBox::up-button {
   font-weight: bold;
 }
 
-#WaveformInfo_StemButton:disabled {
-  color: #3a3a3a;
-}
-
 #WaveformInfo_StemButton[value="1"] {
   background-color: #855ea7;
   border-color: #855ea7;
   color: #e7e8e9;
+}
+
+/* Disabled must override the active state when changing to a non-stem track. */
+#WaveformInfo_StemButton:disabled {
+  background-color: #151515;
+  border-color: #32323c;
+  color: #3a3a3a;
 }
 
 /* The stem buttons, in the overview strip's place while S is on. Lit means
@@ -853,6 +856,12 @@ WBeatSpinBox::up-button {
   background-color: #2d6488;
   border-color: #7fb2d6;
   color: #e5e6ea;
+}
+
+#StemPanel #StemButton:disabled {
+  background-color: #151515;
+  border-color: #32323c;
+  color: #3a3a3a;
 }
 
 /************************************************************************/

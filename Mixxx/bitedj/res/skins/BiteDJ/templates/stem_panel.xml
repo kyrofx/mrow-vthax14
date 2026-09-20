@@ -15,6 +15,10 @@
       <ConfigKey>[Skin],stem_panel_<Variable name="channel"/></ConfigKey>
       <BindProperty>visible</BindProperty>
     </Connection>
+    <Connection>
+      <ConfigKey>[Channel<Variable name="channel"/>],stem_available</ConfigKey>
+      <BindProperty>enabled</BindProperty>
+    </Connection>
     <Children>
 
       <PushButton>
