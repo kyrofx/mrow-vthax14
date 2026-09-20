@@ -4,6 +4,11 @@ A local DJ assistant for Raspberry Pi 4 and 5, also runnable on macOS.
 Requires Python 3.9+ and no third-party Python packages. Google Cloud Gemini is optional;
 local ranking and planning keep working without a key or network.
 
+For ElevenLabs-only runtime provisioning, the private `~/.config/mrow/agent.json`
+file may contain only `elevenlabs_api_key`. Keep it owned by the app user with
+mode `600`. OpenRouter remains disconnected; when adding it, supply all three
+fields together: `api_key`, `next_model`, and `plan_model`.
+
 ## Agent workflow in Mixxx / BiteDJ
 
 1. Start the rebuilt Mixxx fork on the Pi and open **Assist**. The bundled agent
