@@ -1,5 +1,5 @@
 [Unit]
-Description=MROW GPIO crowd buttons (Good / Mid / Bad) as a virtual MIDI port
+Description=MROW GPIO switches and Qwiic Twist as a virtual MIDI port
 Documentation=file:%h/mrow/RPI/src/buttons/mrow_buttons.py
 After=default.target
 

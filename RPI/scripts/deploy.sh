@@ -204,13 +204,14 @@ fi
 
 if [ "$ONLY" = all ] || [ "$ONLY" = buttons ]; then
     say "Installing the crowd buttons on $HOST"
-    # python3-libgpiod and python3-rtmidi are the daemon's only dependencies;
+    # GPIO, MIDI and shared-bus Qwiic Twist dependencies;
     # install-runtime.sh installs them, but a device provisioned before the
     # buttons existed will not have them.
     run_remote "set -e
         missing=
         python3 -c 'import gpiod' 2>/dev/null || missing=\"\$missing python3-libgpiod\"
         python3 -c 'import rtmidi' 2>/dev/null || missing=\"\$missing python3-rtmidi\"
+        python3 -c 'import smbus2' 2>/dev/null || missing=\"\$missing python3-smbus2\"
         if [ -n \"\$missing\" ]; then
             echo \"Installing missing packages:\$missing\"
             sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \$missing

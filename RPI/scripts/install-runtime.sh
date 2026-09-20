@@ -45,7 +45,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 python3-libevdev \
     bluez pipewire-alsa libspa-0.2-bluetooth \
     grim mesa-utils evtest evemu-tools \
-    python3-libgpiod python3-rtmidi
+    python3-libgpiod python3-rtmidi python3-smbus2 i2c-tools
 
 # python3-libgpiod (v2) and python3-rtmidi are for the GPIO crowd buttons; the
 # DJ harness itself needs nothing beyond the Python standard library.
@@ -151,6 +151,11 @@ systemctl --user enable mrow-buttons.service 2>/dev/null ||
 if ! id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx gpio; then
     note "Adding $USER_NAME to the 'gpio' group (needed for the crowd buttons)"
     sudo usermod -aG gpio "$USER_NAME"
+fi
+
+# Qwiic Twist shares the existing display bus; do not change bus speed/overlays.
+if ! id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx i2c; then
+    sudo usermod -aG i2c "$USER_NAME"
 fi
 
 # lisgd reads the touchscreen's evdev node directly.

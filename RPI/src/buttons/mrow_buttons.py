@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
-"""GPIO crowd buttons -> MIDI notes on a virtual port, for BiteDJ.
+"""Pi GPIO switches and Qwiic Twist -> BiteDJ virtual MIDI controls.
 
-Each momentary button is wired between a GPIO pin and ground (the pin's pull-up
-is enabled here). A press sends note on with velocity 127 on the "MROW Crowd
-Buttons" port, a release sends velocity 0. BiteDJ picks the port up like any
-controller and applies the hidden mapping res/controllers/mrow-crowd-buttons.midi.xml,
-which turns the notes into [Harness],rate_good / rate_mid / rate_bad.
-
-Remapping has two layers:
-  pin -> note     ~/.config/mrow/buttons.toml (rewiring a button)
-  note -> action  the Mixxx mapping (what a button does)
-
-Needs python3-libgpiod (v2) and python3-rtmidi on the device; both are only
-imported by run(), so the configuration and event handling are testable
-anywhere.
+BCM inputs use pull-ups and active-low software debounce. The Twist shares
+a configurable I2C bus with the display. Dependencies are imported only at runtime.
 """
 import argparse
 import os
@@ -21,15 +10,17 @@ import signal
 import socket
 import sys
 import tomllib
+import time
+from contextlib import ExitStack
 from dataclasses import dataclass
-from datetime import timedelta
 from pathlib import Path
 
 DEFAULT_CONFIG = Path('~/.config/mrow/buttons.toml').expanduser()
 DEFAULT_PORT_NAME = 'MROW Crowd Buttons'
 
 # Matches mrow-crowd-buttons.midi.xml. Used when no config file exists.
-DEFAULT_BUTTONS = {'good': (17, 0x3C), 'mid': (27, 0x3D), 'bad': (22, 0x3E)}
+DEFAULT_BUTTONS = {'load1': (17, 0x40), 'load2': (27, 0x41),
+                   'good': (22, 0x3C), 'mid': (23, 0x3D), 'bad': (24, 0x3E)}
 
 
 @dataclass(frozen=True)
@@ -40,12 +31,23 @@ class Button:
 
 
 @dataclass(frozen=True)
+class TwistConfig:
+    enabled: bool = True
+    bus: int = 1
+    address: int = 0x3F
+    cc: int = 0x40
+    note: int = 0x42
+    reverse: bool = False
+
+
+@dataclass(frozen=True)
 class Config:
     chip: str
     port_name: str
     channel: int
     debounce_ms: int
     buttons: tuple
+    twist: TwistConfig = TwistConfig()
 
     def button_for_pin(self, pin):
         return next((b for b in self.buttons if b.pin == pin), None)
@@ -60,7 +62,7 @@ def load_config(path=DEFAULT_CONFIG):
     chip = data.get('chip', '/dev/gpiochip0')
     port_name = data.get('port_name', DEFAULT_PORT_NAME)
     channel = data.get('channel', 1)
-    debounce_ms = data.get('debounce_ms', 30)
+    debounce_ms = data.get('debounce_ms', 20)
     if not isinstance(chip, str) or not chip:
         raise ValueError('chip must be a GPIO character device path, e.g. /dev/gpiochip0')
     if not isinstance(port_name, str) or not port_name.strip():
@@ -89,28 +91,93 @@ def load_config(path=DEFAULT_CONFIG):
         values = [getattr(b, attribute) for b in buttons]
         if len(set(values)) != len(values):
             raise ValueError(f'Two buttons share a {attribute}')
-    return Config(chip, port_name.strip(), channel, debounce_ms, tuple(buttons))
+    twist_data = data.get('twist', {})
+    if not isinstance(twist_data, dict):
+        raise ValueError('[twist] must be a table')
+    if set(twist_data) - set(TwistConfig.__dataclass_fields__):
+        raise ValueError('Unknown [twist] option')
+    twist = TwistConfig(**twist_data)
+    for name in ('enabled', 'reverse'):
+        if type(getattr(twist, name)) is not bool:
+            raise ValueError(f'twist.{name} must be true or false')
+    for name, low, high in (('bus', 0, 255), ('address', 0x08, 0x77),
+                            ('cc', 0, 127), ('note', 0, 127)):
+        value = getattr(twist, name)
+        if type(value) is not int or not low <= value <= high:
+            raise ValueError(f'twist.{name} must be {low}-{high}')
+    if twist.enabled and twist.note in [b.note for b in buttons]:
+        raise ValueError('Twist pushbutton and GPIO buttons must use different notes')
+    if twist.enabled and twist.bus == 1 and any(b.pin in (2, 3) for b in buttons):
+        raise ValueError('GPIO2/3 are reserved for the shared I2C bus 1')
+    return Config(chip, port_name.strip(), channel, debounce_ms, tuple(buttons), twist)
 
 
 class Debouncer:
-    """Drops edges that follow the previous accepted edge on the same pin too
-    closely, and repeats of the state a pin is already in. The kernel debounces
-    too when the GPIO controller supports it; this is the backstop."""
+    """Accept a state only after it remains stable for the entire window.
+
+    Called on every sample, including unchanged levels: a release that bounces
+    inside the window is eventually delivered rather than leaving a note held.
+    Inputs held at startup must be released before they can trigger an action.
+    """
 
     def __init__(self, window_ms):
         self.window_ns = window_ms * 1_000_000
-        self.last = {}  # pin -> (pressed, timestamp_ns)
+        self.last = {}
 
     def accept(self, pin, pressed, timestamp_ns):
-        previous = self.last.get(pin)
-        if previous is not None:
-            was_pressed, when = previous
-            if was_pressed == pressed or timestamp_ns - when < self.window_ns:
-                return False
-        elif not pressed:
-            return False  # A release with no press seen (started mid-press).
-        self.last[pin] = (pressed, timestamp_ns)
-        return True
+        if pin not in self.last:
+            self.last[pin] = (pressed, pressed, timestamp_ns)
+            return False
+        stable, candidate, since = self.last[pin]
+        if candidate != pressed:
+            candidate, since = pressed, timestamp_ns
+        changed = stable != candidate and timestamp_ns - since >= self.window_ns
+        self.last[pin] = (candidate if changed else stable, candidate, since)
+        return changed
+
+
+class Twist:
+    """Read-only register access; never resets counts or writes to the display.
+
+    SparkFun firmware: count is little-endian at 0x05; status bit 1 is
+    the current button level (bit 2 is a latched click, not a level).
+    https://github.com/sparkfun/Qwiic_Twist/blob/master/Firmware/Qwiic_Twist/Qwiic_Twist.ino
+    """
+
+    def __init__(self, bus, config, send):
+        self.bus, self.config, self.send = bus, config, send
+        if bus.read_byte_data(config.twist.address, 0x00) != 0x5C:
+            raise OSError('I2C device is not a Qwiic Twist (expected ID 0x5C)')
+        self.count = None
+        self.debouncer = Debouncer(config.debounce_ms)
+        self.pressed = False
+
+    def poll(self, now_ns):
+        t = self.config.twist
+        # Read both before changing state: a failed transaction emits no events.
+        data = self.bus.read_i2c_block_data(t.address, 0x05, 2)
+        if len(data) != 2:
+            raise OSError('Short Twist count read')
+        count = int.from_bytes(bytes(data), 'little')
+        pressed = bool(self.bus.read_byte_data(t.address, 0x01) & 0x02)
+        if self.count is not None:
+            delta = (count - self.count + 32768) % 65536 - 32768
+            if t.reverse:
+                delta = -delta
+            # Bound stale/reset jumps; reconnect always establishes a baseline.
+            if abs(delta) <= 96:
+                for _ in range(abs(delta)):
+                    self.send([0xB0 | (self.config.channel - 1), t.cc,
+                               1 if delta > 0 else 127])
+        self.count = count
+        if self.debouncer.accept('twist', pressed, now_ns):
+            self.pressed = pressed
+            self.send([0x90 | (self.config.channel - 1), t.note, 127 if pressed else 0])
+
+    def release(self):
+        if self.pressed:
+            self.send([0x90 | (self.config.channel - 1), self.config.twist.note, 0])
+            self.pressed = False
 
 
 def message(config, button, pressed):
@@ -119,7 +186,7 @@ def message(config, button, pressed):
 
 
 def handle(config, debouncer, pin, pressed, timestamp_ns, send):
-    """Translate one GPIO edge. Returns the button name when a note was sent."""
+    """Translate one GPIO level sample. Returns the button name when a note was sent."""
     button = config.button_for_pin(pin)
     if button is None or not debouncer.accept(pin, pressed, timestamp_ns):
         return None
@@ -143,13 +210,9 @@ def notify_systemd(state):
 def run(config):
     import gpiod
     import rtmidi
-    from gpiod.line import Bias, Direction, Edge
+    from gpiod.line import Bias, Direction, Value
 
-    midi = rtmidi.MidiOut(name=config.port_name)
-    midi.open_virtual_port(config.port_name)
-    settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP,
-                                  edge_detection=Edge.BOTH,
-                                  debounce_period=timedelta(milliseconds=config.debounce_ms))
+    settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)
     pins = tuple(b.pin for b in config.buttons)
     debouncer = Debouncer(config.debounce_ms)
     stopping = False
@@ -160,21 +223,53 @@ def run(config):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    with gpiod.request_lines(config.chip, consumer='mrow-buttons', config={pins: settings}) as request:
+    with ExitStack() as stack:
+        midi = rtmidi.MidiOut(name=config.port_name)
+        midi.open_virtual_port(config.port_name)
+        stack.callback(midi.close_port)
+        request = stack.enter_context(gpiod.request_lines(
+            config.chip, consumer='mrow-buttons', config={pins: settings}))
         print(f'mrow-buttons: {config.port_name!r} on {config.chip}: ' +
               ', '.join(f'{b.name}=GPIO{b.pin}->note {b.note}' for b in config.buttons), flush=True)
         notify_systemd('READY=1')
-        while not stopping:
-            if not request.wait_edge_events(timedelta(seconds=1)):
-                continue
-            for event in request.read_edge_events():
-                # Active low: the button pulls the pin to ground.
-                pressed = event.event_type == gpiod.EdgeEvent.Type.FALLING_EDGE
-                name = handle(config, debouncer, event.line_offset, pressed,
-                              event.timestamp_ns, midi.send_message)
-                if name and pressed:
-                    print(f'mrow-buttons: {name}', flush=True)
-    midi.close_port()
+        bus = twist = None
+        next_twist = 0
+        try:
+            while not stopping:
+                now = time.monotonic_ns()
+                for pin, value in zip(pins, request.get_values(pins)):
+                    pressed = value == Value.INACTIVE  # physical LOW; active_low is false
+                    name = handle(config, debouncer, pin, pressed, now, midi.send_message)
+                    if name and pressed:
+                        print(f'mrow-buttons: {name}', flush=True)
+                if config.twist.enabled and now >= next_twist:
+                    next_twist = now + 10_000_000
+                    try:
+                        if bus is None:
+                            from smbus2 import SMBus
+                            bus = SMBus(config.twist.bus)
+                        if twist is None:
+                            twist = Twist(bus, config, midi.send_message)
+                            print(f'mrow-buttons: Twist on I2C {config.twist.bus} '
+                                  f'address 0x{config.twist.address:02x}', flush=True)
+                        twist.poll(now)
+                    except (OSError, ImportError) as error:
+                        if twist is not None:
+                            twist.release()
+                        if bus is not None:
+                            bus.close()
+                        bus = twist = None
+                        next_twist = now + 2_000_000_000
+                        print(f'mrow-buttons: Twist unavailable: {error}; retry in 2s',
+                              file=sys.stderr, flush=True)
+                time.sleep(0.005)
+        finally:
+            if twist is not None:
+                twist.release()
+            if bus is not None:
+                bus.close()
+            for button in config.buttons:
+                midi.send_message(message(config, button, False))
 
 
 def main(argv=None):
@@ -190,6 +285,9 @@ def main(argv=None):
     if args.check:
         for b in config.buttons:
             print(f'{b.name}: GPIO{b.pin} -> note {b.note} (0x{b.note:02X}), channel {config.channel}')
+        print(f'Twist: enabled={config.twist.enabled}, bus={config.twist.bus}, '
+              f'address=0x{config.twist.address:02X}, CC={config.twist.cc}, '
+              f'push note={config.twist.note}')
         return 0
     run(config)
     return 0
