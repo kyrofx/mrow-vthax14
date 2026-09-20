@@ -26,7 +26,7 @@
 	<Layout>vertical</Layout>
 
 	<LaunchImageStyle>
-      LaunchImage { background-color: #ffffff; }
+      LaunchImage { background-color: #000000; }
 	  QLabel {
 	    image: url(skin:/images/MROW_V2.png);
 	    margin-bottom: 12px;
