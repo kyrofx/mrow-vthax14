@@ -186,7 +186,7 @@ Reboot to bring the appliance up:   sudo systemctl reboot
 Not done automatically, because both are choices rather than defaults:
 
   * The cloud model. The agent starts inside Mixxx automatically. Use Assist >
-    Models for a runtime OpenRouter key, or provision ~/.config/mrow/agent.json
+    Models for a runtime Google Cloud Gemini key, or provision ~/.config/mrow/agent.json
     with scripts/agent-config.py during build/deploy. Local scoring needs no key.
 
   * Audio output. BiteDJ needs its device set in SETTINGS > AUDIO. If you use a

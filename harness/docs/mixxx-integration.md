@@ -33,7 +33,7 @@ developer HTTP tool (POST JSON to the same paths). Session defaults to `default`
 | `/api/features` | `tracks`: `id`, `source`, and generated features | Number stored |
 | `/api/status` | — | Available tracks and the model configuration |
 | `/api/agent/settings` | Empty to read; `api_key`, `next_model`, `plan_model` to apply; `disconnect: true` to forget | Nonsecret runtime settings; keys never returned |
-| `/api/agent/models` | — | Public OpenRouter text-model catalog |
+| `/api/agent/models` | — | Bundled Gemini model suggestions (manual IDs supported) |
 | `/api/agent` | `session`, `action` (`next`, `generate`, `adjust`, `clear`), optional `count`, `options`, `retry` | Tracks, shared plan, rationale, source and fallback error |
 | `/api/agent/view` | `session` | Saved plan with stale flag, runtime settings; no model request |
 | `/api/agent/export` | `session`, `basis` from the displayed plan | M3U if plan still matches live context; otherwise HTTP 400 |
@@ -47,9 +47,11 @@ alternatives. `generate`/`adjust` save a plan. `clear` removes it and returns
 next-song alternatives. Equal requests are cached; `retry: true` explicitly
 retries a model call. New plays/feedback/settings invalidate cached results.
 
-The transport uses OpenRouter's documented
-[chat-completions API](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request)
-and [public model catalog](https://openrouter.ai/docs/quickstart).
+The transport uses Vertex AI express-mode `generateContent` with an
+`x-goog-api-key` header and JSON response mode. See the
+[Google Cloud express-mode documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/start/express-mode/overview).
+Model suggestions are bundled locally; availability depends on the account.
+
 
 A sync is lenient where an import is strict: a track Mixxx has not analyzed yet
 is skipped and reported rather than failing the drive. `complete` marks tracks
@@ -124,7 +126,7 @@ for it. Runtime-only credentials need reentry; provisioned credentials reload.
 **Settings**: `[Harness],enabled` defaults on. The embedded worker is the default
 even if an old `url` remains in `mixxx.cfg`. Only explicit `[Harness],external=1`
 uses HTTP at `[Harness],url` (developer/test mode, default `http://127.0.0.1:8765`).
-Optional owner-only `~/.config/mrow/agent.json` supplies install-time OpenRouter
+Optional owner-only `~/.config/mrow/agent.json` supplies install-time Google Cloud Gemini
 settings; it is never embedded in the binary. See [provisioning](../README.md#optional-builddeploy-provisioning).
 
 ### Original music generation

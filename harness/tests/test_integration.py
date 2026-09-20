@@ -184,7 +184,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual((result.base_url, result.effort), ('https://api.anthropic.com', 'low'))
 
     def test_partial_configuration_fails_loudly(self):
-        for environ in ({'MROW_MODEL_PROVIDER': 'gemini', 'MROW_MODEL': 'm', 'MROW_MODEL_API_KEY': 'k'},
+        for environ in ({'MROW_MODEL_PROVIDER': 'unknown', 'MROW_MODEL': 'm', 'MROW_MODEL_API_KEY': 'k'},
                         {'MROW_MODEL_PROVIDER': 'openai', 'MROW_MODEL': 'm'},
                         {'MROW_MODEL_PROVIDER': 'openai', 'MROW_MODEL': 'm', 'MROW_MODEL_API_KEY': 'k',
                          'MROW_MODEL_TIMEOUT': 'soon'}):

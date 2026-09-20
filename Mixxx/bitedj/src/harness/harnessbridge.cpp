@@ -48,7 +48,7 @@ constexpr int kReplayWindow = 6;
 /// Plays, ratings and syncs are small; anything this slow is a hung harness.
 constexpr int kRequestTimeoutMillis = 5000;
 /// Suggestions may wait on the cloud model, which the harness itself times out
-/// (25 s for runtime OpenRouter settings, up to 60 s from the environment)
+/// (25 s for runtime Google Cloud Gemini settings, up to 60 s from the environment)
 /// before falling back locally. Leave it room to finish and still answer.
 constexpr int kSuggestionTimeoutMillis = 65000;
 constexpr int kFirstRetryMillis = 1000;

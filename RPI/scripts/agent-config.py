@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare private OpenRouter and ElevenLabs provisioning for a build/deploy. Never pass keys as arguments."""
+"""Prepare private Google Cloud Gemini and ElevenLabs provisioning for a build/deploy. Never pass keys as arguments."""
 import argparse
 import getpass
 import json
@@ -78,9 +78,9 @@ def main():
             install(json.loads(data), Path.home() / '.config/mrow/agent.json', replace=True)
         else:
             # The secret is read with echo disabled, never via shell arguments.
-            data = {'api_key': getpass.getpass('OpenRouter key (hidden): ').strip(),
-                    'next_model': input('Next-song model [openrouter/auto]: ').strip() or 'openrouter/auto',
-                    'plan_model': input('Setlist model [openrouter/auto]: ').strip() or 'openrouter/auto'}
+            data = {'api_key': getpass.getpass('Vertex AI express-mode key (hidden): ').strip(),
+                    'next_model': input('Next-song model [gemini-2.5-flash]: ').strip() or 'gemini-2.5-flash',
+                    'plan_model': input('Setlist model [gemini-2.5-flash]: ').strip() or 'gemini-2.5-flash'}
             elevenlabs_key = getpass.getpass('ElevenLabs key (hidden, optional): ').strip()
             if elevenlabs_key:
                 data['elevenlabs_api_key'] = elevenlabs_key

@@ -1,14 +1,14 @@
 # MROW DJ harness
 
 A local DJ assistant for Raspberry Pi 4 and 5, also runnable on macOS.
-Requires Python 3.9+ and no third-party Python packages. OpenRouter is optional;
+Requires Python 3.9+ and no third-party Python packages. Google Cloud Gemini is optional;
 local ranking and planning keep working without a key or network.
 
 ## Agent workflow in Mixxx / BiteDJ
 
 1. Start the rebuilt Mixxx fork on the Pi and open **Assist**. The bundled agent
    starts automatically, using private process pipes rather than a web server.
-2. Open **Models**, paste an OpenRouter key and choose a next-song model and a
+2. Open **Models**, paste a Google Cloud Gemini key and choose a next-song model and a
    setlist model. **Load models** reads the current catalog; model IDs can also
    be typed directly. **Apply** starts using the choices immediately.
 3. Import/scan a Rekordbox USB export in Mixxx, or add analyzed local songs to
@@ -32,7 +32,7 @@ browser storage, or API replies. Restarting requires reentry unless a private
 install-time config was provisioned. **Disconnect** clears the active key for
 this run; a provisioned file reloads at the next restart. Applying settings
 does not itself verify a credential; advice status reports model success or
-the local fallback and error. Requests can incur OpenRouter charges. Agent
+the local fallback and error. Requests can incur Google Cloud Gemini charges. Agent
 controls in the optional HTTP developer tool accept localhost clients only.
 
 ## Optional build/deploy provisioning
@@ -44,8 +44,8 @@ python3 RPI/scripts/agent-config.py
 RPI/scripts/deploy.sh --agent-config "$HOME/.config/mrow-build/agent.json"
 ```
 
-The first command prompts for an OpenRouter key, separate next-song/setlist
-model IDs (`openrouter/auto` is the default), and an optional ElevenLabs key.
+The first command prompts for a Google Cloud Gemini key, separate next-song/setlist
+model IDs (`gemini-2.5-flash` is the default), and an optional ElevenLabs key.
 Both key prompts hide input. The second builds and deploys Mixxx,
 then streams the JSON through SSH to `~/.config/mrow/agent.json` on the Pi.
 No secret enters compiler arguments, binary resources, container layers, shell
@@ -59,7 +59,7 @@ and **Models** explains the error. JSON fields are `api_key`, `next_model`,
 `plan_model`, and optional `elevenlabs_api_key`. Existing three-field configs
 remain valid. Both providers load at worker startup; invalid supplied fields reject
 the entire file before either provider is configured. See the
-[build guide](../RPI/bitedj_docs/build.md#inject-openrouter-and-elevenlabs-keys)
+[build guide](../RPI/bitedj_docs/build.md#inject-google-cloud-gemini-and-elevenlabs-keys)
 for replacement and verification steps. On a Pi built locally, prepare it directly with:
 
 ```sh
@@ -72,7 +72,7 @@ access, remove that file on the Pi, then disconnect in Mixxx or restart it.
 
 This is permission-protected provisioning, not encryption at rest. The appliance
 user, root, or someone reading an unencrypted SD card can recover the key. Use a
-dedicated spending-limited OpenRouter key and revoke it if the device is lost.
+dedicated spending-limited Google Cloud Gemini key and revoke it if the device is lost.
 Compiling a secret into a binary would not protect it. Provisioning opts into
 cloud advice as library/play/feedback context changes; model use can incur costs.
 
@@ -95,7 +95,7 @@ and model changes invalidate the plan. A response that arrives after the live
 context changes is discarded and replaced by a fresh local result. Unchanged
 polls reuse results, and concurrent refreshes coalesce; **Refresh advice** / native
 **Refresh** explicitly retries the model, including after a network failure.
-Export rejects stale plans. Runtime OpenRouter calls time out after 25 seconds,
+Export rejects stale plans. Runtime Google Cloud Gemini calls time out after 25 seconds,
 with the existing local scorer as fallback.
 
 ## Pi operation and troubleshooting
@@ -215,7 +215,7 @@ the ranking already allowed and explains its picks, under a timeout.
 
 This applies only to the standalone developer server, not the embedded Mixxx
 worker. Supply settings in the developer server's environment.
-OpenRouter and OpenAI- or Anthropic-compatible endpoints work:
+Google Cloud Gemini and OpenAI- or Anthropic-compatible endpoints work:
 
 ```sh
 MROW_MODEL_PROVIDER=anthropic     # or: openai
@@ -232,6 +232,15 @@ Only song metadata is sent — titles, artists, genres, BPM, key, the crowd's
 reactions. File paths, drive names and track ids stay on the device.
 `/api/recommend` reports which ranking answered (`source`) and why the model
 did not (`model_error`); `POST /api/status` reports the configuration.
+
+Use a **Vertex AI express-mode API key** from Google Cloud. AI Studio keys and
+standard Vertex project/service-account credentials are not supported by this
+API-key flow. Replace any previously provisioned OpenRouter key and model IDs;
+existing private configuration files are not migrated automatically.
+The model picker supplies bundled suggestions and accepts other Gemini model IDs.
+For the developer server, set `MROW_MODEL_PROVIDER=gemini`,
+`MROW_MODEL=gemini-2.5-flash`, and `MROW_MODEL_API_KEY` to the Cloud key.
+The default endpoint is `https://aiplatform.googleapis.com/v1`.
 
 ## Mixxx
 
@@ -258,7 +267,7 @@ Open **Assist → Generate song**, enter an ElevenLabs API key, choose a duratio
 (3–600 seconds), direction and whether to require instrumental audio, then press
 **Generate & download**. At least one played song must have a Good/Mid/Bad rating.
 The optional developer page provides the same controls under **Generate original
-music**. No OpenRouter key is required for this feature.
+music**. No Google Cloud Gemini key is required for this feature.
 
 The prompt aggregates the latest 100 rated plays across sets, including history
 from disconnected drives: genre counts for each rating and average performance
@@ -269,7 +278,7 @@ crowd reacted. Direction steers a new original composition.
 
 The worker calls [ElevenLabs Music compose](https://elevenlabs.io/docs/api-reference/music/compose)
 with `music_v1` and MP3 output. Each button press requests one paid generation.
-The active key stays in process memory, independently of OpenRouter settings.
+The active key stays in process memory, independently of Google Cloud Gemini settings.
 A provisioned `elevenlabs_api_key` loads from the private config at startup;
 otherwise it must be reentered after restart. Disconnect removes it for future
 jobs in this run; provisioned keys reload after restart, and a generation already

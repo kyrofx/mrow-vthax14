@@ -189,7 +189,7 @@ class WorkerTests(unittest.TestCase):
                 self.assertNotIn(SECRET['api_key'], output.getvalue())
             data = read_provision(path)
             self.assertEqual(data.get('elevenlabs_api_key'), optional or None)
-            self.assertEqual(data['next_model'], 'openrouter/auto')
+            self.assertEqual(data['next_model'], 'gemini-2.5-flash')
 
     def test_dual_key_emit_receive_and_real_worker_startup(self):
         both = dict(SECRET, elevenlabs_api_key='eleven-private')
