@@ -1,10 +1,10 @@
 #pragma once
 
+#include <QPixmap>
 #include <QWidget>
 
 QT_FORWARD_DECLARE_CLASS(QProgressBar);
 QT_FORWARD_DECLARE_CLASS(QLabel);
-QT_FORWARD_DECLARE_CLASS(QGraphicsOpacityEffect);
 
 // This is a widget that is shown in the Mixxx main window
 // until the skin is ready to use.
@@ -37,6 +37,7 @@ QT_FORWARD_DECLARE_CLASS(QGraphicsOpacityEffect);
 
 class LaunchImage: public QWidget {
     Q_OBJECT
+    Q_PROPERTY(qreal fadeOpacity READ fadeOpacity WRITE setFadeOpacity)
   public:
     LaunchImage(QWidget* pParent, const QString& styleSheet);
     ~LaunchImage() override = default;
@@ -51,10 +52,17 @@ class LaunchImage: public QWidget {
 
   private:
     QProgressBar* m_pProgressBar;
-    QGraphicsOpacityEffect* m_pContentOpacity;
+    QWidget* m_pContent;
+    QPixmap m_fadeFrame;
+    qreal m_fadeOpacity = 1.0;
     bool m_started = false;
     bool m_minimumElapsed = false;
     bool m_ready = false;
     bool m_fadingOut = false;
     void tryFadeOut();
+    qreal fadeOpacity() const { return m_fadeOpacity; }
+    void setFadeOpacity(qreal opacity) {
+        m_fadeOpacity = opacity;
+        update();
+    }
 };

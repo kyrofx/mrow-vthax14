@@ -1,7 +1,6 @@
 #include "skin/legacy/launchimage.h"
 
 #include <QEvent>
-#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
@@ -17,6 +16,7 @@
 namespace {
 constexpr int kFadeDurationMs = 400;
 constexpr int kMinimumVisibleMs = 3000;
+constexpr int kBlackFrameMs = 80;
 } // namespace
 
 LaunchImage::LaunchImage(QWidget* pParent, const QString& styleSheet)
@@ -48,6 +48,7 @@ LaunchImage::LaunchImage(QWidget* pParent, const QString& styleSheet)
     }
 
     auto* content = new QWidget(this);
+    m_pContent = content;
     QLabel* label = new QLabel(content);
 
     m_pProgressBar = new QProgressBar(content);
@@ -64,10 +65,6 @@ LaunchImage::LaunchImage(QWidget* pParent, const QString& styleSheet)
     hbox->addWidget(content);
     hbox->addStretch();
 
-    // Fade the artwork in over the solid, skin-defined background.
-    m_pContentOpacity = new QGraphicsOpacityEffect(content);
-    m_pContentOpacity->setOpacity(0.0);
-    content->setGraphicsEffect(m_pContentOpacity);
 }
 
 void LaunchImage::showEvent(QShowEvent* event) {
@@ -76,19 +73,11 @@ void LaunchImage::showEvent(QShowEvent* event) {
         return;
     }
     m_started = true;
-    auto* fade = new QPropertyAnimation(m_pContentOpacity, "opacity", this);
-    fade->setDuration(kFadeDurationMs);
-    fade->setStartValue(0.0);
-    fade->setEndValue(1.0);
-    connect(fade, &QPropertyAnimation::finished, this, [this] {
-        // Start the hold after the fade actually finishes: slow synchronous
-        // startup work must not consume the entire fully-visible interval.
-        QTimer::singleShot(kMinimumVisibleMs, this, [this] {
-            m_minimumElapsed = true;
-            tryFadeOut();
-        });
+    // Keep the artwork static while startup occupies the GUI thread.
+    QTimer::singleShot(kMinimumVisibleMs, this, [this] {
+        m_minimumElapsed = true;
+        tryFadeOut();
     });
-    fade->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void LaunchImage::finishWhenReady() {
@@ -100,7 +89,8 @@ void LaunchImage::finishWhenReady() {
     setGeometry(parentWidget()->rect());
     show();
     raise();
-    tryFadeOut();
+    // Let the current initialization call return before starting the transition.
+    QTimer::singleShot(0, this, &LaunchImage::tryFadeOut);
 }
 
 bool LaunchImage::eventFilter(QObject* watched, QEvent* event) {
@@ -114,17 +104,20 @@ void LaunchImage::tryFadeOut() {
     if (!m_ready || !m_minimumElapsed || m_fadingOut) {
         return;
     }
+    // Capture once, then paint only that image over opaque black. Avoid widget
+    // graphics effects and blending against the live OpenGL DJ interface.
+    m_fadeFrame = grab();
+    m_pContent->hide();
     m_fadingOut = true;
-    // Remove the content effect before applying an effect to its ancestor.
-    m_pContentOpacity->setEnabled(false);
-    auto* opacity = new QGraphicsOpacityEffect(this);
-    opacity->setOpacity(1.0);
-    setGraphicsEffect(opacity);
-    auto* fade = new QPropertyAnimation(opacity, "opacity", this);
+    auto* fade = new QPropertyAnimation(this, "fadeOpacity", this);
     fade->setDuration(kFadeDurationMs);
     fade->setStartValue(1.0);
     fade->setEndValue(0.0);
-    connect(fade, &QPropertyAnimation::finished, this, &QObject::deleteLater);
+    connect(fade, &QPropertyAnimation::finished, this, [this] {
+        repaint();
+        // Give the compositor a fully black frame before revealing the skin.
+        QTimer::singleShot(kBlackFrameMs, this, &QObject::deleteLater);
+    });
     fade->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
@@ -136,8 +129,14 @@ void LaunchImage::progress(int value, const QString& serviceName) {
 
 void LaunchImage::paintEvent(QPaintEvent *)
 {
+    QPainter p(this);
+    p.fillRect(rect(), Qt::black);
+    if (m_fadingOut) {
+        p.setOpacity(m_fadeOpacity);
+        p.drawPixmap(rect(), m_fadeFrame);
+        return;
+    }
     QStyleOption opt;
     opt.initFrom(this);
-    QPainter p(this);
     style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
 }
