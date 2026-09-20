@@ -9,6 +9,25 @@ checkout should be kept in step with it.
 
 ---
 
+## MROW DJ assistant (harness bridge and Assist tab)
+
+**Files:** new `src/harness/`, `src/widget/wharnesspanel.*`,
+`res/skins/BiteDJ/assist.xml`, `res/controllers/mrow-crowd-buttons.midi.xml`;
+three touch points in existing code — `src/coreservices.{h,cpp}` (constructs
+the bridge), `src/skin/legacy/legacyskinparser.cpp` (the `HarnessPanel` tag),
+`CMakeLists.txt` (sources and the test).
+**Why:** the unit suggests what to play next and records the crowd's reaction,
+against the harness sidecar in `harness/`. See
+[`harness/docs/mixxx-integration.md`](../../harness/docs/mixxx-integration.md).
+
+Almost all of it is new files, so an upstream merge should only conflict in
+the three touch points above and in the skin XML. The `[Harness]` controls are
+the contract everything else binds to — skin buttons, the GPIO crowd buttons,
+controller mappings — so they are the part to preserve if any of this has to
+be reworked.
+
+---
+
 ## Show the PipeWire PCM in the audio device picker
 
 **File:** `src/preferences/audiodevicesettings.cpp` (`refreshDeviceList`)
