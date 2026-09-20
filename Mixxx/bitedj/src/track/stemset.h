@@ -4,8 +4,8 @@
 
 /// Bite DJ: the pre-separated stems that sit beside a track on its drive.
 ///
-/// `RPI/scripts/separate-stems.py` writes them on a workstation — a Pi cannot
-/// separate audio in any useful time — as a directory named after the track:
+/// `RPI/scripts/prepare-library.sh` prepares them on a workstation,
+/// as a directory named after the track:
 ///
 ///     Music/Artist - Title.mp3
 ///     Music/Artist - Title.mp3.stems/

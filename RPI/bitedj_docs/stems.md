@@ -1,13 +1,53 @@
-# Stems — plan
+# Stem playback
 
-Play a track as two parts the DJ can drop independently: **vocals** and
-**instrumental**. Separation happens ahead of time on a workstation; the
-appliance only plays what it is given.
+Generate stems on a workstation with `RPI/scripts/prepare-library.sh`, then
+bring the prepared USB drive to the Pi. The appliance only plays stems:
+there is no separation worker, request queue, or generation action in its UI.
 
-**Status: built, not yet heard.** Phase 0 measured and passed; the separation
-pass, the playback path and the panel all exist and are tested. What has not
-happened is a separated track playing through speakers on the device — see
-"What is left" at the end.
+The Play page's **S** button is greyed out when the loaded track has no valid
+stems. With stems available, it opens **Vocals** and **Instrumental** controls.
+Reload a track after adding its stem files to make them available.
+
+## Prepare a library on your Mac or Linux computer
+
+Plug the music USB drive into the computer and run:
+
+```sh
+./RPI/scripts/prepare-library.sh "/Volumes/MUSIC/Contents"
+```
+
+Use your actual music folder path (Linux example: `/media/you/MUSIC/Contents`).
+The launcher creates a private environment under `~/.cache/bitedj-stems/venv`,
+installs pinned Demucs/PyTorch dependencies on first use, and downloads the
+model when first needed. Install ffmpeg and Python 3.10–3.13 beforehand; on
+macOS: `brew install ffmpeg python@3.13`. The launcher keeps the Mac awake
+while processing.
+
+It recursively processes one track at a time, prints Demucs progress and
+per-track elapsed time, skips current stems, and continues past individual
+failures. Hidden files, generated stems and partial outputs are excluded.
+A timestamped JSON report in `~/.cache/bitedj-stems/` records completed and
+failed paths. Ctrl-C stops the run; the same command resumes by skipping
+finished tracks. An interrupted track restarts from the beginning.
+
+```sh
+# Preview without installing anything or writing files:
+./RPI/scripts/prepare-library.sh "/Volumes/MUSIC/Contents" --dry-run
+# Explicit NVIDIA GPU, or CPU:
+./RPI/scripts/prepare-library.sh "/Volumes/MUSIC/Contents" --device cuda
+./RPI/scripts/prepare-library.sh "/Volumes/MUSIC/Contents" --device cpu
+```
+
+Automatic device selection uses CUDA when available, otherwise CPU. Apple
+MPS can be explicitly requested with `--device mps`, but is not the default
+because Demucs operations may fall back to CPU or be unsupported. Use CPU
+if that backend fails. GPU speed and memory needs depend on the computer;
+no workstation performance benchmark is claimed here.
+
+Original audio files are unchanged. Keep each `<filename>.stems` folder
+beside its original when copying a prepared library to the USB drive.
+Reconnect the drive to the Pi and load/reload the track to use the stems.
+This launcher prepares files locally; it does not fetch a library over SSH.
 
 ## Decisions
 
@@ -16,7 +56,7 @@ happened is a separated track playing through speakers on the device — see
 | How many stems | **Two**: vocals and instrumental. |
 | Per-stem effects / EQ | **No.** Effects and EQ stay on the deck as a whole. |
 | Where stems live | **On the USB drive**, beside the track, so they travel with the stick like everything else the DJ owns. |
-| Separation | **Ahead of time**, off the device. A Pi 4 cannot separate audio in real time, and would not try. |
+| Separation | **Ahead of time**, on a workstation only. |
 
 "No per-stem effects" is what makes this affordable — see below.
 
@@ -95,7 +135,7 @@ Caveats worth keeping in mind:
 ## Phase 1: separation on the workstation — built
 
 `RPI/scripts/separate-stems.py`. Walks a drive or a list of files, skips
-tracks that already have current stems, and never runs on the Pi.
+tracks that already have current stems. The workstation launcher uses this code.
 
 - **Demucs** (`htdemucs`, `--two-stems=vocals`), keeping only the vocal and
   instrumental split.
@@ -106,14 +146,14 @@ tracks that already have current stems, and never runs on the Pi.
 
   ```
   Music/Artist - Title.mp3
-  Music/Artist - Title.stems/
+  Music/Artist - Title.mp3.stems/
       vocals.opus
       instrumental.opus
       manifest.json
   ```
 
 - `manifest.json` records the model and version, the sample rate, the frame
-  count, and a hash of the source file. The hash is what stops a stale stem
+  count, and the size of the source file. The size check stops a stale stem
   set being played against a re-encoded or replaced track.
 - Alignment is by construction: both stems come from one decode of the source,
   so frame 0 is frame 0. The frame count in the manifest is checked at load.
@@ -122,8 +162,7 @@ tracks that already have current stems, and never runs on the Pi.
 - The same pass should emit the harness's missing features — `vocalness`,
   `energy` and section boundaries all fall out of a separation run — and POST
   them to `/api/features`. One pipeline, two payoffs.
-- A script under `RPI/scripts/` or a small tool in the MROW repo; it never
-  runs on the Pi.
+- Used by the workstation library preparation launcher.
 
 ## Phase 2: playback — built
 
@@ -170,7 +209,7 @@ text styled in `style.qss`, which stays sharp at any size and takes the
 highlight colour in its pressed state for free.
 
 The button is present on every deck regardless of the track, like Q and
-keylock. It is disabled (not hidden) when the loaded track has no stems, so
+keylock. It is disabled (not hidden) when the loaded track has no valid stems, so
 the row never reflows — the space it occupies is the same either way.
 
 ### What it swaps
@@ -212,7 +251,7 @@ bound to `[Harness]`. Nothing in the skin is a precondition for that.
 - **CPU** is the whole question. Phase 0 answers it or kills the feature.
 - **Storage**: roughly double per separated track on the stick.
 - **Stale stems**: a re-encoded track with an old stem directory beside it.
-  The manifest hash is the guard.
+  The manifest source-size check is the guard; same-size replacements are not detected.
 - **Drive removal mid-play** already has a path (tracks are evicted on eject);
   two readers per deck must not add a second one that behaves differently.
 - **Separation quality** varies by material. Vocals over a dense mix leave
@@ -235,10 +274,8 @@ why.
 - **Nobody has heard it.** A real separated track, played on the device,
   through speakers. Everything above says the right files are opened and the
   right numbers come out; none of it says it sounds right.
-- **The separation pass has not been run for real** — demucs was never
-  invoked, only its command line checked. First run of a real track will
-  probably turn up something about how demucs names its output.
+- Real Demucs output has been verified: both Opus files and the manifest
+  are generated successfully by the workstation preparation command.
 - **No xrun measurement while actually playing stems.** Phase 0 measured
   decode cost in isolation; the honest test is a set.
-- The S button is not yet disabled when a track has no stems, though
-  `stem_available` now carries the answer.
+- S is disabled whenever `stem_available` is false.
