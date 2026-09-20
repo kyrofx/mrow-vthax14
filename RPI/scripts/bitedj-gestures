@@ -3,6 +3,7 @@
 #
 # Three fingers swiped DOWN  -> the debug desktop
 # Three fingers swiped UP    -> back to BiteDJ
+# Three fingers swiped LEFT  -> the Bluetooth picker, floating over BiteDJ
 #
 # Why lisgd and not sway's own `bindgesture`: sway binds libinput *gesture*
 # events, which touchpads emit and touchscreens do not. Touchscreens emit raw
@@ -48,4 +49,5 @@ SCREEN="$HOME/.local/bin/bitedj-screen"
 # tall, so the 125px default is over a quarter of the screen and feels sticky.
 exec lisgd -d "$DEV" -t 100 \
     -g "3,UD,*,*,R,$SCREEN desktop" \
-    -g "3,DU,*,*,R,$SCREEN dj"
+    -g "3,DU,*,*,R,$SCREEN dj" \
+    -g "3,RL,*,*,R,$HOME/.local/bin/bitedj-bt-ui"

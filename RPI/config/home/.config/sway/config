@@ -40,6 +40,11 @@ for_window [app_id="foot"] border pixel 2
 for_window [window_role="dialog"] floating enable
 for_window [window_type="dialog"] floating enable
 
+### The Bluetooth picker floats centred over whatever is on screen, including
+### fullscreen BiteDJ, so a speaker can be connected mid-set without leaving
+### the appliance. Sized to leave a margin on the 800x480 panel.
+for_window [app_id="bitedj-bt-ui"] floating enable, resize set 780 450, move position center, border pixel 2
+
 ### Keyboard bindings. These duplicate the touch gestures rather than replacing
 ### them -- the appliance normally has no keyboard, but when one is plugged in
 ### for debugging it should not be harder to use than a finger.
@@ -52,6 +57,7 @@ bindsym $mod+2 exec $HOME/.local/bin/bitedj-screen desktop
 ### fullscreen BiteDJ, i.e. invisible, which looks like it failed to start.
 bindsym $mod+Return exec $HOME/.local/bin/bitedj-screen desktop
 bindsym $mod+k exec $HOME/.local/bin/bitedj-osk
+bindsym $mod+t exec $HOME/.local/bin/bitedj-bt-ui
 bindsym $mod+f fullscreen toggle
 bindsym $mod+b exec killall -SIGUSR1 waybar
 bindsym $mod+Shift+r reload

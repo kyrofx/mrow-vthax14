@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+"""Touch-friendly Bluetooth speaker picker for the BiteDJ appliance.
+
+The box has no keyboard, so typing a MAC address into bluetoothctl is not a
+thing anyone can do at a venue. This is the same operations as `bitedj-bt`,
+driven entirely by tapping.
+
+Design notes for an 800x480 panel:
+  * Rows are 64px. Below roughly 48px a fingertip starts missing them.
+  * Already-paired devices are listed first and connect on one tap -- that is
+    the common case at a venue, where the speaker is known and just needs
+    reconnecting. Scanning is a separate, deliberate action.
+  * Every bluetoothctl call runs on a worker thread. They block for seconds,
+    and a frozen UI on a touchscreen is indistinguishable from a crashed one.
+"""
+
+import re
+import subprocess
+import threading
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
+
+# Layer-shell puts this window on the OVERLAY layer, which is the only way to
+# draw above a fullscreen window in sway. Without it the picker opens *behind*
+# fullscreen BiteDJ and looks like it failed to launch. The alternative --
+# dropping BiteDJ out of fullscreen -- reflows the waveform widgets mid-set,
+# which is a real cost for a speaker connection.
+try:
+    gi.require_version("GtkLayerShell", "0.1")
+    from gi.repository import GtkLayerShell  # noqa: E402
+except (ValueError, ImportError):
+    GtkLayerShell = None
+
+ROW_HEIGHT = 64
+SCAN_SECONDS = 12
+
+
+def run(*args, timeout=60):
+    """Run a command, returning (ok, output). Never raises."""
+    try:
+        p = subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout, check=False
+        )
+        return p.returncode == 0, (p.stdout + p.stderr).strip()
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return False, str(exc)
+
+
+def bt(*args, timeout=60):
+    return run("bluetoothctl", *args, timeout=timeout)
+
+
+def ensure_powered():
+    """The adapter comes up rfkill soft-blocked on this box from cold.
+
+    bluetoothctl reports that only as PowerState: off-blocked, and every other
+    command then fails with org.bluez.Error.NotReady, which mentions neither.
+    """
+    ok, out = run("rfkill", "list", "bluetooth")
+    if ok and "Soft blocked: yes" in out:
+        run("sudo", "rfkill", "unblock", "bluetooth")
+    bt("power", "on")
+    bt("agent", "on")
+    bt("default-agent")
+
+
+def device_list(kind=None):
+    """[(mac, name)] from `bluetoothctl devices [Paired|Connected]`."""
+    ok, out = bt("devices", kind) if kind else bt("devices")
+    if not ok:
+        return []
+    found = []
+    for line in out.splitlines():
+        m = re.match(r"Device ([0-9A-F:]{17})\s+(.*)", line.strip(), re.I)
+        if not m:
+            continue
+        mac, name = m.group(1), m.group(2).strip()
+        # bluez uses the MAC as the name when the device never advertised one.
+        # Those are beacons and trackers, never something to play music on.
+        if name.replace("-", "").replace(":", "").upper() == mac.replace(":", "").upper():
+            continue
+        found.append((mac, name))
+    return found
+
+
+def set_default_sink(mac):
+    """Point PipeWire at the speaker once bluez has connected it.
+
+    WirePlumber creates the node a moment after the link comes up, so poll.
+    """
+    node = mac.replace(":", "_")
+    for _ in range(6):
+        ok, out = run("wpctl", "status")
+        if ok:
+            for line in out.splitlines():
+                if "bluez" in line.lower() or node.lower() in line.lower():
+                    m = re.search(r"(\d+)\.", line)
+                    if m:
+                        run("wpctl", "set-default", m.group(1))
+                        return True
+        run("sleep", "2")
+    return False
+
+
+class Picker(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Bluetooth")
+        self.set_default_size(780, 450)
+        self.busy = False
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        root.set_margin_top(8)
+        root.set_margin_bottom(8)
+        root.set_margin_start(8)
+        root.set_margin_end(8)
+        self.add(root)
+
+        self.status = Gtk.Label(xalign=0)
+        self.status.set_line_wrap(True)
+        self.status.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        root.pack_start(self.status, False, False, 0)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        # Kinetic scrolling is what makes a list feel right under a finger.
+        scroller.set_kinetic_scrolling(True)
+        root.pack_start(scroller, True, True, 0)
+
+        self.list = Gtk.ListBox()
+        self.list.set_selection_mode(Gtk.SelectionMode.NONE)
+        scroller.add(self.list)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, homogeneous=True)
+        buttons.set_size_request(-1, ROW_HEIGHT)
+        root.pack_start(buttons, False, False, 0)
+
+        for label, cb in (
+            ("Scan for new", self.on_scan),
+            ("Refresh", lambda _b: self.refresh()),
+            ("Close", lambda _b: Gtk.main_quit()),
+        ):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", cb)
+            buttons.pack_start(b, True, True, 0)
+
+        self.connect("destroy", Gtk.main_quit)
+        self.set_message("Starting Bluetooth...")
+        self.work(self._startup, done=lambda _r: self.refresh())
+
+    # ---------------------------------------------------------------- helpers
+    def set_message(self, text):
+        self.status.set_markup(f"<big>{GLib.markup_escape_text(text)}</big>")
+
+    def work(self, fn, done=None):
+        """Run fn on a thread; call done(result) back on the GTK thread."""
+        if self.busy:
+            return
+        self.busy = True
+
+        def runner():
+            result = fn()
+            def finish():
+                self.busy = False
+                if done:
+                    done(result)
+                return False
+            GLib.idle_add(finish)
+
+        threading.Thread(target=runner, daemon=True).start()
+
+    @staticmethod
+    def _startup():
+        ensure_powered()
+        return True
+
+    # ------------------------------------------------------------------ list
+    def refresh(self):
+        self.set_message("Reading devices...")
+        self.work(
+            lambda: (device_list("Connected"), device_list("Paired"), device_list()),
+            done=self._populate,
+        )
+
+    def _populate(self, result):
+        connected, paired, known = result
+        for child in self.list.get_children():
+            self.list.remove(child)
+
+        connected_macs = {m for m, _ in connected}
+        paired_macs = {m for m, _ in paired}
+        seen = set()
+        rows = []
+        for mac, name in list(paired) + list(known):
+            if mac in seen:
+                continue
+            seen.add(mac)
+            rows.append((mac, name, mac in connected_macs, mac in paired_macs))
+        # Connected first, then paired, then everything else.
+        rows.sort(key=lambda r: (not r[2], not r[3], r[1].lower()))
+
+        for mac, name, is_connected, is_paired in rows:
+            self.list.add(self._row(mac, name, is_connected, is_paired))
+
+        self.list.show_all()
+        if rows:
+            self.set_message(
+                f"{len(rows)} device(s). Tap to connect."
+                if not connected
+                else f"Connected: {connected[0][1]}"
+            )
+        else:
+            self.set_message("Nothing known yet -- put the speaker in pairing mode, then Scan.")
+
+    def _row(self, mac, name, is_connected, is_paired):
+        row = Gtk.ListBoxRow()
+        btn = Gtk.Button()
+        btn.set_size_request(-1, ROW_HEIGHT)
+        btn.set_relief(Gtk.ReliefStyle.NORMAL)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        label = Gtk.Label(xalign=0)
+        state = "connected" if is_connected else ("paired" if is_paired else "new")
+        label.set_markup(
+            f"<big><b>{GLib.markup_escape_text(name)}</b></big>\n"
+            f"<small>{mac} — {state}</small>"
+        )
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        box.pack_start(label, True, True, 8)
+        btn.add(box)
+
+        if is_connected:
+            btn.connect("clicked", lambda _b: self.on_disconnect(mac, name))
+        else:
+            btn.connect("clicked", lambda _b: self.on_connect(mac, name, is_paired))
+
+        row.add(btn)
+        return row
+
+    # --------------------------------------------------------------- actions
+    def on_connect(self, mac, name, is_paired):
+        self.set_message(f"Connecting to {name}...")
+
+        def job():
+            ensure_powered()
+            if not is_paired:
+                bt("pair", mac, timeout=90)
+            # trust = reconnect on its own next time, without pairing again.
+            bt("trust", mac)
+            ok, out = bt("connect", mac, timeout=60)
+            if ok:
+                set_default_sink(mac)
+            return ok, out
+
+        def done(result):
+            ok, out = result
+            self.set_message(f"Connected: {name}" if ok else f"Failed: {out.splitlines()[-1] if out else 'unknown error'}")
+            self.refresh()
+
+        self.work(job, done)
+
+    def on_disconnect(self, mac, name):
+        self.set_message(f"Disconnecting {name}...")
+        self.work(lambda: bt("disconnect", mac), done=lambda _r: self.refresh())
+
+    def on_scan(self, _button):
+        self.set_message(f"Scanning {SCAN_SECONDS}s -- put the speaker in pairing mode now")
+
+        def job():
+            ensure_powered()
+            # --timeout makes bluetoothctl exit on its own; no stray scan left on.
+            run("bluetoothctl", "--timeout", str(SCAN_SECONDS), "scan", "on",
+                timeout=SCAN_SECONDS + 15)
+            return True
+
+        self.work(job, done=lambda _r: self.refresh())
+
+
+def main():
+    # Sets the Wayland app_id. Without it GTK reports "python3", which is not
+    # something a sway rule can usefully match -- and this window needs one, to
+    # float centred over BiteDJ instead of tiling on the desktop workspace.
+    GLib.set_prgname("bitedj-bt-ui")
+    GLib.set_application_name("Bluetooth")
+    win = Picker()
+    if GtkLayerShell is not None:
+        GtkLayerShell.init_for_window(win)
+        GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_namespace(win, "bitedj-bt-ui")
+        # Anchor all four edges with a margin. Without anchors a layer surface
+        # shrinks to its content, which on this panel collapsed to a ~400px box
+        # with the status line ellipsised. Anchoring gives a predictable panel
+        # and full-width rows to tap.
+        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                     GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_anchor(win, edge, True)
+            GtkLayerShell.set_margin(win, edge, 16)
+        # -1 means "reserve no space", so nothing else on screen reflows.
+        GtkLayerShell.set_exclusive_zone(win, -1)
+        GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.ON_DEMAND)
+    else:
+        # Fallback: an ordinary toplevel. The sway rule floats it, but it will
+        # sit behind fullscreen BiteDJ.
+        win.set_default_size(780, 450)
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

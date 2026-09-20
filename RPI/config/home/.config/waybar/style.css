@@ -27,6 +27,7 @@ window#waybar {
 #workspaces button,
 #custom-term,
 #custom-osk,
+#custom-bt,
 #custom-files,
 #custom-settings,
 #custom-power {
@@ -47,6 +48,7 @@ window#waybar {
 #workspaces button:hover,
 #custom-term:hover,
 #custom-osk:hover,
+#custom-bt:hover,
 #custom-files:hover,
 #custom-settings:hover,
 #custom-power:hover {

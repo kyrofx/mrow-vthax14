@@ -174,7 +174,35 @@ so `bluetooth-unblock.service` makes it deterministic instead:
 ExecStart=/usr/sbin/rfkill unblock bluetooth
 ```
 
-### Pairing
+### Pairing from the touchscreen
+
+`bitedj-bt-ui` is the one to use at a venue. It is a GTK picker with 64px rows,
+reachable three ways:
+
+- **Three fingers swiped left** — opens it over BiteDJ, mid-set
+- The **BT** button on waybar
+- `Super+T`
+
+Tap a device to connect. Already-paired devices are listed first and connect on
+one tap, which is the common case at a venue; **Scan for new** is a separate,
+deliberate action that takes 12s. Devices that never advertised a name are hidden
+— bluez reports those with the MAC as the name, and they are beacons and
+trackers, never speakers.
+
+It draws on the **overlay** layer via gtk-layer-shell, which is the only way to
+appear above a fullscreen window in sway. The alternative — dropping BiteDJ out
+of fullscreen — reflows the waveform widgets mid-set, which is a real cost for a
+speaker connection. With layer-shell, BiteDJ is not touched at all: it stays
+fullscreen at 800x480 and keeps playing.
+
+If `gir1.2-gtklayershell-0.1` is missing the picker falls back to an ordinary
+window, which a sway rule floats — but it will then sit *behind* fullscreen
+BiteDJ and look like it failed to launch.
+
+Every bluetoothctl call runs on a worker thread. They block for seconds, and a
+frozen UI on a touchscreen is indistinguishable from a crashed one.
+
+### Pairing from a shell
 
 Use the helper rather than remembering the bluetoothctl order of operations —
 it handles the rfkill check, the agent, and setting the default sink:

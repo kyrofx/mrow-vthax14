@@ -42,6 +42,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     policykit-1 mate-polkit \
     foot pcmanfm \
     lisgd wvkbd \
+    python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 \
     bluez pipewire-alsa libspa-0.2-bluetooth \
     grim mesa-utils evtest evemu-tools \
     python3-libgpiod python3-rtmidi
@@ -122,7 +123,7 @@ sed -i "s#/home/flx4/#$USER_HOME/#g" "$USER_HOME/.config/waybar/config.jsonc"
 install -m 644 "$CONFIG/home/.config/wireplumber/wireplumber.conf.d/50-bitedj-reserve-controller.conf" \
     "$USER_HOME/.config/wireplumber/wireplumber.conf.d/50-bitedj-reserve-controller.conf"
 
-for s in bitedj-session waybar-usb add-wifi bitedj-bt \
+for s in bitedj-session waybar-usb add-wifi bitedj-bt bitedj-bt-ui \
          bitedj-screen bitedj-gestures bitedj-osk bitedj-power; do
     install -m 755 "$HERE/$s" "$USER_HOME/.local/bin/$s"
 done
@@ -205,6 +206,8 @@ Getting out of the appliance once it boots:
   * Three fingers swiped DOWN  -> the debug desktop (terminal, on-screen
     keyboard, file manager, raspi-config).
   * Three fingers swiped UP    -> back to BiteDJ.
+  * Three fingers swiped LEFT  -> the Bluetooth speaker picker, drawn over
+    BiteDJ without disturbing it.
   * With a keyboard: Super+Escape toggles, Super+Return opens a terminal.
 
   Switching does not interrupt playback. See ../bitedj_docs/desktop-access.md

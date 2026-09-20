@@ -89,7 +89,8 @@ daemons. See [`bitedj_docs/desktop-access.md`](bitedj_docs/desktop-access.md).
 | `bitedj-power` | button | Power menu; always confirms, so a stray tap cannot end a set |
 | `waybar-usb` | from waybar | Custom module showing which removable drives are mounted |
 | `add-wifi` | manually | Stores a WiFi network **without connecting to it**, for venues you have not visited yet |
-| `bitedj-bt` | manually | Pairs a Bluetooth speaker; clears the rfkill block that otherwise makes every command fail with `NotReady` |
+| `bitedj-bt` | manually | Pairs a Bluetooth speaker from a shell; clears the rfkill block that otherwise makes every command fail with `NotReady` |
+| `bitedj-bt-ui` | gesture / button | Touch picker for Bluetooth speakers. Draws over fullscreen BiteDJ via layer-shell, so a speaker can be connected mid-set |
 
 ## Configuration
 

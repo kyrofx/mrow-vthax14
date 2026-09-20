@@ -18,7 +18,7 @@
     "height": 36,
     "spacing": 8,
 
-    "modules-left": ["sway/workspaces", "custom/term", "custom/osk", "custom/files", "custom/settings"],
+    "modules-left": ["sway/workspaces", "custom/term", "custom/osk", "custom/bt", "custom/files", "custom/settings"],
     "modules-center": ["clock"],
     "modules-right": ["custom/usb", "wireplumber", "temperature", "network", "custom/power"],
 
@@ -42,6 +42,14 @@
         "format": "KBD",
         "tooltip": false,
         "on-click": "$HOME/.local/bin/bitedj-osk"
+    },
+
+    // Bluetooth speaker picker. Also on a three-finger swipe left, so a speaker
+    // can be connected mid-set without leaving BiteDJ.
+    "custom/bt": {
+        "format": "BT",
+        "tooltip": false,
+        "on-click": "$HOME/.local/bin/bitedj-bt-ui"
     },
 
     "custom/files": {
