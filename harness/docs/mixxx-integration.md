@@ -126,3 +126,15 @@ even if an old `url` remains in `mixxx.cfg`. Only explicit `[Harness],external=1
 uses HTTP at `[Harness],url` (developer/test mode, default `http://127.0.0.1:8765`).
 Optional owner-only `~/.config/mrow/agent.json` supplies install-time OpenRouter
 settings; it is never embedded in the binary. See [provisioning](../README.md#optional-builddeploy-provisioning).
+
+### Original music generation
+
+The Assist panel's **Generate song** dialog uses `/api/agent/music/settings`,
+`/api/agent/music/generate`, and `/api/agent/music/view`. These share the existing
+private-pipe transport and localhost-only HTTP restriction for agent commands.
+The generation command returns immediately; the Python worker owns one background
+ElevenLabs job while playback/feedback commands stay responsive. The dialog polls
+job state every two seconds and restores recent jobs when reopened. `music.py`
+is included in the embedded Qt resources and unpacked alongside the agent.
+Downloads remain separate from library sync until the operator imports/analyzes
+them in Mixxx. See the harness README for the request fields and storage policy.

@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from model import ModelClient, ModelError, load_config
 from scoring import Ranker, features
 from agent import Agent
+from music import Music
 
 # On the device, next to Mixxx's own settings (see docs/mixxx-integration-plan.md).
 DEFAULT_DATABASE = Path('~/.mixxx/harness/harness.sqlite3').expanduser()
@@ -67,6 +68,7 @@ class Harness:
                 track_id TEXT PRIMARY KEY REFERENCES tracks(id), source TEXT NOT NULL,
                 features TEXT NOT NULL, updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
         self.agent = Agent(self)
+        self.music = Music(self)
 
     @contextmanager
     def connect(self):
@@ -418,6 +420,12 @@ def dispatch(harness, path, data):
         return harness.store_features(data.get('tracks'))
     if path == '/api/status':
         return harness.status()
+    if path == '/api/agent/music/settings':
+        return harness.music.settings(data)
+    if path == '/api/agent/music/view':
+        return harness.music.view()
+    if path == '/api/agent/music/generate':
+        return harness.music.start(session, data)
     if path == '/api/agent/settings':
         return harness.agent.configure(data) if any(
             k in data for k in ('api_key', 'next_model', 'plan_model', 'disconnect')) else harness.agent.settings()

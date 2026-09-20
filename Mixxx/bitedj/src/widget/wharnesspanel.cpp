@@ -1,6 +1,10 @@
 #include "widget/wharnesspanel.h"
 
 #include <QComboBox>
+#include <QCheckBox>
+#include <QDesktopServices>
+#include <QTimer>
+#include <QUrl>
 #include <QDialog>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -39,7 +43,7 @@ const char* kStatusProperty = "status";
 
 // Columns: text, then Load 1, Load 2, Skip.
 constexpr int kColumns = 4;
-constexpr int kFirstSuggestionRow = 3;
+constexpr int kFirstSuggestionRow = 4;
 
 void restyle(QStyle* pStyle, QWidget* pWidget) {
     pStyle->unpolish(pWidget);
@@ -120,6 +124,9 @@ WHarnessPanel::WHarnessPanel(QWidget* parent)
             bridge->startNewSession();
         }
     }), 2, 3);
+
+    m_pLayout->addWidget(addButton(tr("Generate song"), kRefreshButtonObjectName,
+                                [this] { showMusicGeneration(); }), 3, 0, 1, kColumns);
 
     if (HarnessBridge* pBridge = HarnessBridge::tryInstance()) {
         connect(pBridge, &HarnessBridge::stateChanged, this, &WHarnessPanel::onStateChanged);
@@ -502,4 +509,149 @@ void WHarnessPanel::mouseReleaseEvent(QMouseEvent* e) {
         }
     }
     e->accept();
+}
+
+void WHarnessPanel::showMusicGeneration() {
+    auto* bridge = HarnessBridge::tryInstance();
+    if (!bridge) {
+        return;
+    }
+    auto* dialog = new QDialog(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(tr("Generate song · ElevenLabs"));
+    dialog->resize(640, 480);
+    auto* layout = new QVBoxLayout(dialog);
+    auto* note = new QLabel(tr("Create original music from Good / Mid / Bad ratings of played songs across sets. "
+                              "Each generation uses your ElevenLabs balance and saves an MP3 automatically. "
+                              "Add the saved song to Mixxx and analyze it before using it in recommendations."), dialog);
+    note->setWordWrap(true);
+    layout->addWidget(note);
+    auto* form = new QFormLayout;
+    auto* key = new QLineEdit(dialog);
+    key->setEchoMode(QLineEdit::Password);
+    key->setPlaceholderText(tr("ElevenLabs key; blank keeps the provisioned or runtime key"));
+    auto* duration = new QSpinBox(dialog);
+    duration->setRange(3, 600);
+    duration->setValue(120);
+    duration->setSuffix(tr(" seconds"));
+    auto* direction = new QComboBox(dialog);
+    direction->addItem(tr("Follow crowd"), QStringLiteral("follow crowd"));
+    direction->addItem(tr("Build"), QStringLiteral("build"));
+    direction->addItem(tr("Hold"), QStringLiteral("hold"));
+    direction->addItem(tr("Ease down"), QStringLiteral("ease down"));
+    auto* instrumental = new QCheckBox(tr("Instrumental"), dialog);
+    instrumental->setChecked(true);
+    form->addRow(tr("API key"), key);
+    form->addRow(tr("Length"), duration);
+    form->addRow(tr("Direction"), direction);
+    form->addRow(instrumental);
+    layout->addLayout(form);
+    auto* status = new QLabel(tr("Checking music settings…"), dialog);
+    status->setTextFormat(Qt::PlainText);
+    status->setWordWrap(true);
+    layout->addWidget(status);
+    auto* history = new QListWidget(dialog);
+    history->setWordWrap(true);
+    layout->addWidget(history);
+    auto* buttons = new QHBoxLayout;
+    auto* generate = new QPushButton(tr("Generate & download"), dialog);
+    auto* disconnect = new QPushButton(tr("Disconnect"), dialog);
+    auto* folder = new QPushButton(tr("Open downloads"), dialog);
+    auto* close = new QPushButton(tr("Close"), dialog);
+    for (auto* button : {generate, disconnect, folder, close}) {
+        button->setMinimumHeight(44);
+        buttons->addWidget(button);
+    }
+    layout->addLayout(buttons);
+    folder->setEnabled(false);
+    generate->setEnabled(false);
+    connect(close, &QPushButton::clicked, dialog, &QDialog::close);
+    connect(folder, &QPushButton::clicked, dialog, [folder] {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(folder->property("directory").toString()));
+    });
+    auto* timer = new QTimer(dialog);
+    timer->setInterval(2000);
+    auto refresh = [=] {
+        timer->stop();
+        bridge->agentRequest(QStringLiteral("/api/agent/music/view"), {}, dialog, [=](const QJsonObject& reply) {
+            if (reply.contains(QStringLiteral("error"))) {
+                status->setText(reply.value(QStringLiteral("error")).toString());
+                timer->start();
+                return;
+            }
+            const QString directory = reply.value(QStringLiteral("directory")).toString();
+            folder->setProperty("directory", directory);
+            history->clear();
+            bool pending = false;
+            bool downloaded = false;
+            for (const auto& value : reply.value(QStringLiteral("jobs")).toArray()) {
+                const QJsonObject job = value.toObject();
+                const QString state = job.value(QStringLiteral("state")).toString();
+                pending |= state == QStringLiteral("generating");
+                downloaded |= state == QStringLiteral("complete");
+                history->addItem(job.value(QStringLiteral("created")).toString() + QStringLiteral(" · ") + state +
+                        QStringLiteral(" · ") + (state == QStringLiteral("complete")
+                                        ? job.value(QStringLiteral("path")).toString()
+                                        : job.value(QStringLiteral("error")).toString()));
+            }
+            generate->setEnabled(!pending);
+            folder->setEnabled(downloaded);
+            if (!status->property("keepError").toBool()) {
+                status->setText(!reply.value(QStringLiteral("provision_error")).toString().isEmpty()
+                                ? reply.value(QStringLiteral("provision_error")).toString()
+                                : pending ? tr("Generating and downloading… You can close this window; playback remains available.")
+                                : reply.value(QStringLiteral("connected")).toBool()
+                                ? (reply.value(QStringLiteral("provisioned")).toBool()
+                                                ? tr("Key configured. Provisioned keys reload on restart. Downloads: %1")
+                                                : tr("Key configured for this run. Downloads: %1")).arg(directory)
+                                : tr("Enter an ElevenLabs key, or restart to reload provisioned keys."));
+            }
+            timer->start();
+        });
+    };
+    connect(timer, &QTimer::timeout, dialog, refresh);
+    connect(generate, &QPushButton::clicked, dialog, [=] {
+        timer->stop();
+        generate->setEnabled(false);
+        disconnect->setEnabled(false);
+        status->setProperty("keepError", false);
+        const QJsonObject settings{{QStringLiteral("api_key"), key->text()}};
+        const QJsonObject request{{QStringLiteral("duration_seconds"), duration->value()},
+                {QStringLiteral("direction"), direction->currentData().toString()},
+                {QStringLiteral("instrumental"), instrumental->isChecked()}};
+        key->clear();
+        status->setText(tr("Starting generation…"));
+        bridge->agentRequest(QStringLiteral("/api/agent/music/settings"), settings, dialog, [=](const QJsonObject& reply) {
+            if (reply.contains(QStringLiteral("error"))) {
+                status->setProperty("keepError", true);
+                status->setText(reply.value(QStringLiteral("error")).toString());
+                generate->setEnabled(true);
+                disconnect->setEnabled(true);
+                timer->start();
+                return;
+            }
+            bridge->agentRequest(QStringLiteral("/api/agent/music/generate"), request, dialog, [=](const QJsonObject& result) {
+                disconnect->setEnabled(true);
+                if (result.contains(QStringLiteral("error"))) {
+                    status->setProperty("keepError", true);
+                    status->setText(result.value(QStringLiteral("error")).toString());
+                }
+                refresh();
+            });
+        });
+    });
+    connect(disconnect, &QPushButton::clicked, dialog, [=] {
+        key->clear();
+        status->setProperty("keepError", false);
+        bridge->agentRequest(QStringLiteral("/api/agent/music/settings"),
+                {{QStringLiteral("disconnect"), true}}, dialog, [=](const QJsonObject& reply) {
+                    if (reply.contains(QStringLiteral("error"))) {
+                        status->setProperty("keepError", true);
+                        status->setText(reply.value(QStringLiteral("error")).toString());
+                    }
+                    refresh();
+                });
+    });
+    refresh();
+    dialog->show();
 }

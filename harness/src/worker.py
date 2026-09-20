@@ -21,14 +21,15 @@ def read_provision(path):
                 or stat.S_IMODE(info.st_mode) & 0o077 or info.st_size > 16384):
             raise ValueError('Agent config must be an owner-only regular file (chmod 600).')
         config = json.load(source)
-    if not isinstance(config, dict) or set(config) != {'api_key', 'next_model', 'plan_model'}:
-        raise ValueError('Agent config needs api_key, next_model and plan_model only.')
-    # Validate without printing values or contacting a provider.
-    if (not isinstance(config['api_key'], str) or not config['api_key'].strip()
-            or len(config['api_key']) > 4096
-            or any(ord(c) < 32 or ord(c) > 126 for c in config['api_key'])
-            or any(not isinstance(config[k], str) or not config[k].strip()
-                   or len(config[k]) > 200 for k in ('next_model', 'plan_model'))):
+    required = {'api_key', 'next_model', 'plan_model'}
+    if (not isinstance(config, dict) or not required <= set(config)
+            or set(config) - required - {'elevenlabs_api_key'}):
+        raise ValueError('Agent config needs api_key, next_model, plan_model and optional elevenlabs_api_key.')
+    # Validate the entire file before configuring either provider.
+    if (any(not isinstance(v, str) or not v.strip() for v in config.values())
+            or any(len(config[k]) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in config[k])
+                   for k in ('api_key', 'elevenlabs_api_key') if k in config)
+            or any(len(config[k]) > 200 for k in ('next_model', 'plan_model'))):
         raise ValueError('Invalid agent configuration.')
     return config
 
@@ -37,11 +38,19 @@ def provision(harness, path):
     if not path.exists() and not path.is_symlink():
         return
     try:
-        harness.agent.configure(read_provision(path))
+        config = read_provision(path)
+        harness.agent.configure({k: config[k] for k in ('api_key', 'next_model', 'plan_model')})
         harness.agent.provisioned = True
+        harness.agent.provision_error = ''
+        if 'elevenlabs_api_key' in config:
+            harness.music.settings({'api_key': config['elevenlabs_api_key']})
+            harness.music.provisioned = True
+        harness.music.provision_error = ''
     except (OSError, ValueError, TypeError):
         # A malformed secret must neither break local suggestions nor be echoed.
-        harness.agent.provision_error = 'Provisioned config rejected. Check ownership, chmod 600 and JSON fields.'
+        error = 'Provisioned config rejected. Check ownership, chmod 600 and JSON fields.'
+        harness.agent.provision_error = error
+        harness.music.provision_error = error
 
 
 def serve(harness, incoming, outgoing):

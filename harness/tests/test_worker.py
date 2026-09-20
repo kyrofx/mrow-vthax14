@@ -123,6 +123,82 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(replies[2]['body']['connected'])
         self.assertEqual(replies[3]['status'], 200)
 
+    def test_both_provider_keys_load_and_disconnect_independently(self):
+        both = dict(SECRET, elevenlabs_api_key='test-eleven-private')
+        config_tool.install(both, self.config)
+        provision(self.h, self.config)
+        self.assertTrue(self.h.music.settings({})['provisioned'])
+        self.assertEqual(self.h.music.key, both['elevenlabs_api_key'])
+        self.assertEqual(self.h.agent.client('next')[0].config.api_key, SECRET['api_key'])
+        self.h.music.settings({'disconnect': True})
+        self.assertFalse(self.h.music.settings({})['connected'])
+        self.assertTrue(self.h.agent.settings()['connected'])
+        restarted = Harness(self.root / 'restart.sqlite3')
+        provision(restarted, self.config)
+        self.assertTrue(restarted.music.settings({})['connected'])
+        visible = json.dumps([restarted.music.view(), restarted.agent.settings()])
+        for key in (SECRET['api_key'], both['elevenlabs_api_key']):
+            self.assertNotIn(key, visible)
+            self.assertNotIn(key.encode(), (self.root / 'restart.sqlite3').read_bytes())
+
+    def test_invalid_optional_key_rejects_entire_config_before_loading(self):
+        self.config.parent.mkdir()
+        for value in ('', '   ', 'bad\nkey', 'é', 'x' * 4097, None, 42, []):
+            data = dict(SECRET, elevenlabs_api_key=value)
+            with self.subTest(value_type=type(value).__name__):
+                with self.assertRaises(ValueError):
+                    config_tool.validate(data)
+                self.config.write_text(json.dumps(data))
+                self.config.chmod(0o600)
+                with self.assertRaises(ValueError):
+                    read_provision(self.config)
+                provision(self.h, self.config)
+                self.assertFalse(self.h.agent.settings()['connected'])
+                self.assertFalse(self.h.music.settings({})['connected'])
+                self.assertTrue(self.h.music.settings({})['provision_error'])
+        config_tool.install(dict(SECRET, elevenlabs_api_key='valid-key'), self.config, replace=True)
+        provision(self.h, self.config)
+        self.assertEqual(self.h.music.settings({})['provision_error'], '')
+
+    def test_hidden_prompts_accept_optional_elevenlabs_key(self):
+        for optional in ('eleven-private', ''):
+            path = self.root / ('both.json' if optional else 'legacy.json')
+            with patch.object(sys, 'argv', ['agent-config.py', '--output', str(path)]), \
+                    patch.object(config_tool.getpass, 'getpass', side_effect=[SECRET['api_key'], optional]) as hidden, \
+                    patch('builtins.input', side_effect=['', '']), patch('sys.stdout', new_callable=io.StringIO) as output:
+                config_tool.main()
+                self.assertEqual(hidden.call_count, 2)
+                self.assertNotIn('eleven-private', output.getvalue())
+                self.assertNotIn(SECRET['api_key'], output.getvalue())
+            data = read_provision(path)
+            self.assertEqual(data.get('elevenlabs_api_key'), optional or None)
+            self.assertEqual(data['next_model'], 'openrouter/auto')
+
+    def test_dual_key_emit_receive_and_real_worker_startup(self):
+        both = dict(SECRET, elevenlabs_api_key='eleven-private')
+        config_tool.install(both, self.config)
+        script = str(ROOT / 'RPI/scripts/agent-config.py')
+        emitted = subprocess.run([sys.executable, script, '--emit', str(self.config)],
+                                 capture_output=True, text=True, check=True)
+        # Receive installs under the appliance user's home, including permissions.
+        with patch.object(sys, 'argv', ['agent-config.py', '--receive']), \
+                patch('sys.stdin', io.StringIO(emitted.stdout)), \
+                patch.object(config_tool.Path, 'home', return_value=self.root):
+            config_tool.main()
+        installed = self.root / '.config/mrow/agent.json'
+        self.assertEqual(read_provision(installed), both)
+        self.assertEqual(installed.stat().st_mode & 0o777, 0o600)
+        command = {'id': 1, 'path': '/api/agent/music/settings'}
+        result = subprocess.run([sys.executable, '-E', '-s', '-u',
+                    str(ROOT / 'harness/src/worker.py'), '--database', str(self.root / 'child.sqlite3'),
+                    '--config', str(installed)], input=json.dumps(command) + '\n',
+                    capture_output=True, text=True, timeout=10, check=True)
+        reply = json.loads(result.stdout.splitlines()[1])
+        self.assertTrue(reply['body']['connected'])
+        self.assertTrue(reply['body']['provisioned'])
+        for key in (SECRET['api_key'], both['elevenlabs_api_key']):
+            self.assertNotIn(key, result.stdout + result.stderr + emitted.stderr)
+
     def test_slow_advice_does_not_block_feedback_commands(self):
         started, released = threading.Event(), threading.Event()
         output = io.StringIO()

@@ -44,8 +44,9 @@ python3 RPI/scripts/agent-config.py
 RPI/scripts/deploy.sh --agent-config "$HOME/.config/mrow-build/agent.json"
 ```
 
-The first command prompts for an OpenRouter key and separate next-song/setlist
-model IDs (`openrouter/auto` is the default). The second builds and deploys Mixxx,
+The first command prompts for an OpenRouter key, separate next-song/setlist
+model IDs (`openrouter/auto` is the default), and an optional ElevenLabs key.
+Both key prompts hide input. The second builds and deploys Mixxx,
 then streams the JSON through SSH to `~/.config/mrow/agent.json` on the Pi.
 No secret enters compiler arguments, binary resources, container layers, shell
 history or deployment staging. Without `--agent-config`, existing credentials
@@ -55,7 +56,11 @@ The file has mode `600`, its directory `700`, and belongs to the appliance user.
 Mixxx loads it automatically when its worker starts. Group/world-readable files,
 symlinks, other owners and invalid fields are rejected; local scoring still works
 and **Models** explains the error. JSON fields are `api_key`, `next_model`,
-`plan_model`. On a Pi built locally, prepare it directly with:
+`plan_model`, and optional `elevenlabs_api_key`. Existing three-field configs
+remain valid. Both providers load at worker startup; invalid supplied fields reject
+the entire file before either provider is configured. See the
+[build guide](../RPI/bitedj_docs/build.md#inject-openrouter-and-elevenlabs-keys)
+for replacement and verification steps. On a Pi built locally, prepare it directly with:
 
 ```sh
 python3 RPI/scripts/agent-config.py --output "$HOME/.config/mrow/agent.json"
@@ -246,3 +251,56 @@ deduplication, drive sync and eject, generated features, the model client
 against both protocols (including its fallbacks), and an HTTP import → play →
 feedback → setlist → export flow. Pi performance, touchscreen interaction, the
 GPIO buttons and a real cloud endpoint still require device tests.
+
+## Generate original songs with ElevenLabs
+
+Open **Assist → Generate song**, enter an ElevenLabs API key, choose a duration
+(3–600 seconds), direction and whether to require instrumental audio, then press
+**Generate & download**. At least one played song must have a Good/Mid/Bad rating.
+The optional developer page provides the same controls under **Generate original
+music**. No OpenRouter key is required for this feature.
+
+The prompt aggregates the latest 100 rated plays across sets, including history
+from disconnected drives: genre counts for each rating and average performance
+BPM for liked songs. Changing a play's rating replaces its contribution; skipping
+an unplayed suggestion contributes nothing. Titles, artists, paths and audio are
+not sent. This is a musical preference summary, not a claim to understand why the
+crowd reacted. Direction steers a new original composition.
+
+The worker calls [ElevenLabs Music compose](https://elevenlabs.io/docs/api-reference/music/compose)
+with `music_v1` and MP3 output. Each button press requests one paid generation.
+The active key stays in process memory, independently of OpenRouter settings.
+A provisioned `elevenlabs_api_key` loads from the private config at startup;
+otherwise it must be reentered after restart. Disconnect removes it for future
+jobs in this run; provisioned keys reload after restart, and a generation already
+started continues. Settings do not verify credentials until generation.
+
+Generation runs in the background while plays and ratings remain available.
+Only one generation may run at a time. Closing/reopening the panel or polling
+status does not trigger another request. The captured feedback snapshot is kept
+with the job; later feedback affects the next generation. Provider errors and
+timeouts are shown without automatic retries, since a failed download may still
+have consumed credits. Check ElevenLabs usage before trying again.
+
+MP3s are automatically saved to `generated/` beside `harness.sqlite3`, on the
+machine running the harness (not the browser's device). **Open downloads** opens
+that folder in the native interface. Files appear as complete only after the
+bounded download finishes; empty or non-MP3 responses are rejected. Job history
+and saved paths persist through restarts. Interrupted jobs are marked failed.
+Import the MP3 into Mixxx and analyze it to obtain BPM/key before it enters the
+existing library recommendation flow. Generation never invents measured features,
+loads a deck, or starts playback.
+
+The private-worker and localhost developer HTTP commands are:
+
+- `POST /api/agent/music/settings`: `{api_key}` or `{disconnect: true}`; empty
+  object reads configuration without returning the key.
+- `POST /api/agent/music/generate`: `{session, duration_seconds, direction,
+  instrumental}`; direction is `follow crowd`, `build`, `hold`, or `ease down`.
+  Returns a job ID immediately.
+- `POST /api/agent/music/view`: returns configuration and the latest 20 jobs with
+  `generating`, `complete`, or `failed` state, plus local paths/errors.
+
+Tests mock the provider: `python3 -m unittest discover -s harness/tests -v`.
+Live API billing/audio quality and native touchscreen interaction require a
+configured account and device testing.

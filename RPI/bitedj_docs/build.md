@@ -23,8 +23,8 @@ Build from the full MROW checkout (`Mixxx/bitedj`) so CMake can embed
 `../../harness/src`. For a standalone fork checkout, add
 `-DBITEDJ_AGENT_SOURCE_DIR=/absolute/path/to/mrow/harness/src` below.
 The deployed app needs Python 3.9+ but no source checkout or HTTP service.
-Optional [key/model provisioning](../../harness/README.md#optional-builddeploy-provisioning)
-uses a private file, never CMake variables or binary-embedded secrets.
+Optional [OpenRouter and ElevenLabs key injection](#inject-openrouter-and-elevenlabs-keys)
+uses a private install-time file. Keys are not CMake variables or embedded in the binary.
 
 ```bash
 cmake -S . -B build \
@@ -123,6 +123,114 @@ sudo udevadm control --reload-rules
 # Convenience only -- everything on disk is really called mixxx.
 sudo ln -sfn /usr/local/bin/mixxx /usr/local/bin/bitedj
 ```
+
+## Inject OpenRouter and ElevenLabs keys
+
+Provision both keys during build/deploy so the embedded agent loads them at each
+startup. The credential file stays outside the repository and build image.
+Run the following commands from the **MROW repository root**.
+
+### Build and deploy from a workstation
+
+Create a private config using hidden prompts:
+
+```bash
+python3 RPI/scripts/agent-config.py
+```
+
+Enter the OpenRouter key, next-song model, setlist model, and ElevenLabs key.
+Both key prompts hide input. Model IDs default to `openrouter/auto`. The ElevenLabs
+prompt is optional: leaving it blank creates an OpenRouter-only config, compatible
+with previous installs.
+
+The default output is `~/.config/mrow-build/agent.json`. Its fields are:
+
+```json
+{
+  "api_key": "<OpenRouter key>",
+  "next_model": "openrouter/auto",
+  "plan_model": "openrouter/auto",
+  "elevenlabs_api_key": "<ElevenLabs key>"
+}
+```
+
+Use the prompt to create the real file; the JSON above only documents the schema.
+If `elevenlabs_api_key` is supplied, it must be a nonempty key. An invalid field
+rejects the entire config before either provider is configured.
+
+Validate and deploy, replacing `user@pi-host` with your Pi's SSH destination:
+
+```bash
+python3 RPI/scripts/agent-config.py --validate "$HOME/.config/mrow-build/agent.json"
+RPI/scripts/deploy.sh --host user@pi-host \
+  --agent-config "$HOME/.config/mrow-build/agent.json"
+```
+
+The deploy script builds Mixxx and transfers the config through SSH standard input
+into `~/.config/mrow/agent.json` for the destination user. No key is placed in
+compiler arguments, deployment staging or container layers. The file has mode
+`600`, its directory `700`. Run the appliance as this same user.
+
+Add `--no-build` to deploy an already-built binary that includes this feature.
+Add `--dry-run` to validate and preview deployment without transferring the keys.
+Without `--agent-config`, deployment preserves the Pi's existing credential file.
+Deployment does not restart the running app by default: restart BiteDJ when audio
+can stop, or explicitly add `--restart` to the deployment command.
+
+### When building directly on the Pi
+
+After installing Mixxx, run this from the MROW repository root as the appliance
+user, **without sudo**:
+
+```bash
+python3 RPI/scripts/agent-config.py --output "$HOME/.config/mrow/agent.json"
+python3 RPI/scripts/agent-config.py --validate "$HOME/.config/mrow/agent.json"
+```
+
+Both keys load when BiteDJ next starts. `cmake --install` alone does not install
+credentials. A standalone fork checkout needs the provisioning script from the
+full MROW checkout for this step.
+
+### Replace an existing config
+
+The interactive command refuses to overwrite files. To add ElevenLabs to an
+existing OpenRouter setup, create a new file and enter both keys and your desired
+models again:
+
+```bash
+python3 RPI/scripts/agent-config.py --output "$HOME/.config/mrow-build/agent-next.json"
+RPI/scripts/deploy.sh --host user@pi-host \
+  --agent-config "$HOME/.config/mrow-build/agent-next.json"
+```
+
+Deployment replaces the destination config atomically. For a direct Pi install,
+prepare and validate a sibling file, then replace the config as the appliance user:
+
+```bash
+python3 RPI/scripts/agent-config.py --output "$HOME/.config/mrow/agent-next.json"
+python3 RPI/scripts/agent-config.py --validate "$HOME/.config/mrow/agent-next.json"
+mv "$HOME/.config/mrow/agent-next.json" "$HOME/.config/mrow/agent.json"
+```
+
+Restart BiteDJ to load the replacement. Runtime key changes and **Disconnect**
+affect only the current process; provisioned keys reload after restart. To remove
+a provider permanently, update the private file (omit `elevenlabs_api_key` to
+remove ElevenLabs), or remove the file to disable all provisioned credentials.
+
+### Verify startup
+
+After restarting, **Assist → Models** should report provisioned OpenRouter
+settings. **Assist → Generate song** should report a configured key with
+provisioned keys reloading on restart. Neither screen displays the stored keys.
+Configuration loading does not verify provider authentication. To verify music
+generation, rate a played song and press **Generate & download**; expect a
+completed job and an MP3 in `generated/` beside the harness database. This is a
+paid ElevenLabs request. Import and analyze the downloaded MP3 in Mixxx.
+
+If provisioning is rejected, run the validation command as the appliance user.
+Check ownership, mode `600`, and the field names; symlinks and files readable by
+other users are rejected. The file is protected by permissions, not encrypted.
+Never commit it or include it in shared build artifacts or logs.
 
 ## Progress checks
 

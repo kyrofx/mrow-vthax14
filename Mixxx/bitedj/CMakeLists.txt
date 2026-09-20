@@ -1748,7 +1748,7 @@ target_sources(mixxx PRIVATE res/mixxx.qrc)
 # checkout, Python package installation, web server or systemd service needed.
 set(BITEDJ_AGENT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../harness/src" CACHE PATH
     "Source directory for the built-in DJ agent")
-foreach(module worker harness agent model scoring)
+foreach(module worker harness agent model scoring music)
   if(NOT EXISTS "${BITEDJ_AGENT_SOURCE_DIR}/${module}.py")
     message(FATAL_ERROR "Missing bundled agent: ${BITEDJ_AGENT_SOURCE_DIR}/${module}.py. Build from MROW or set BITEDJ_AGENT_SOURCE_DIR.")
   endif()

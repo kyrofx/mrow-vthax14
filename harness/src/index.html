@@ -16,6 +16,14 @@
 <label>Next-song model <input id="nextModel" list="modelCatalog" value="openrouter/auto" maxlength="200"></label>
 <label>Setlist model <input id="planModel" list="modelCatalog" value="openrouter/auto" maxlength="200"></label></div>
 <datalist id="modelCatalog"></datalist><div class="actions"><button id="models">Load model catalog</button><button id="connect">Apply models</button><button id="disconnect">Disconnect</button></div><p id="modelNote">Model IDs can also be entered manually.</p></details></section>
+<section><details><summary>Generate original music · ElevenLabs</summary>
+<p>Generate a song from Good / Mid / Bad ratings of played songs across sets. Each request uses your ElevenLabs balance. MP3s save automatically on the machine running the harness; add and analyze them in Mixxx before recommendations can use them.</p>
+<div class="settings"><label>ElevenLabs key <input id="musicKey" type="password" autocomplete="off" placeholder="For this run; blank keeps current key"></label>
+<label>Length in seconds <input id="musicDuration" type="number" min="3" max="600" value="120"></label>
+<label>Direction <select id="musicDirection"><option value="follow crowd">Follow crowd</option><option value="build">Build</option><option value="hold">Hold</option><option value="ease down">Ease down</option></select></label>
+<label><input id="musicInstrumental" type="checkbox" checked> Instrumental</label></div>
+<div class="actions"><button id="musicGenerate" disabled>Generate &amp; download</button><button id="musicDisconnect">Disconnect ElevenLabs</button></div>
+<p id="musicStatus" role="status">Checking music settings…</p><ol id="musicJobs"></ol></details></section>
 <section><h2>Now playing</h2><div id="playing">No song recorded in this session.</div><div id="feedback" class="actions"></div><small>Record your crowd assessment. Selecting another rating replaces the previous assessment for this play.</small><label>Performance BPM for the next recorded play (optional) <input id="actualBpm" type="number" min="20" max="300" step="0.1" placeholder="Use library BPM"></label></section>
 <section><details open><summary>Scoring controls</summary><div class="settings">
 <label>Energy direction <select id="direction"><option value="auto">Learn from history & feedback</option><option value="steady">Hold steady</option><option value="up">Build energy</option><option value="down">Ease down</option></select></label>

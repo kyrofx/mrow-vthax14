@@ -46,6 +46,7 @@ class WHarnessPanel : public WWidget {
     void updateHeader();
     void showAgentSettings();
     void showSetlist();
+    void showMusicGeneration();
 
     QGridLayout* m_pLayout;
     QLabel* m_pStatus;

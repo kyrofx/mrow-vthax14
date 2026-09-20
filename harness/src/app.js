@@ -1,6 +1,7 @@
 let state = {tracks: [], plays: [], feedback: []}, setlist = [], busy = false, revision = null;
 let pendingPlay = null;
 let planBasis = null;
+let musicPending = false, musicSubmitting = false, musicPolling = false;
 const $ = id => document.getElementById(id);
 $('session').value = new URLSearchParams(location.search).get('session') || 'default';
 const session = () => $('session').value.trim();
@@ -30,6 +31,7 @@ async function action(fn) {
     busy = false;
     document.querySelectorAll('button,input,select').forEach(b => b.disabled = false);
     $('export').disabled = !setlist.length;
+    $('musicGenerate').disabled = musicPending || musicSubmitting;
   }
 }
 function button(text, fn) {
@@ -202,3 +204,63 @@ action(async () => {
   await refresh();
 });
 setInterval(() => { if (!busy && !document.hidden && !['INPUT', 'SELECT'].includes(document.activeElement.tagName)) action(() => refresh(true)); }, 5000);
+
+async function refreshMusic() {
+  if (musicPolling || musicSubmitting) return;
+  musicPolling = true;
+  try {
+    const result = await api('agent/music/view');
+    musicPending = result.jobs.some(job => job.state === 'generating');
+    $('musicGenerate').disabled = busy || musicPending || musicSubmitting;
+    $('musicJobs').replaceChildren();
+    for (const job of result.jobs) {
+      const li = document.createElement('li');
+      li.textContent = `${job.created} · ${job.state} · ${job.path || job.error || 'Generating and downloading…'}`;
+      $('musicJobs').append(li);
+    }
+    if (!$('musicStatus').dataset.error) {
+      $('musicStatus').textContent = result.provision_error || (musicPending ? 'Generating and downloading… Playback and feedback remain available.' :
+        `${result.connected ? 'Key configured.' : 'Enter an ElevenLabs key.'} ${result.provisioned ? 'Provisioned keys reload on restart.' : 'Runtime keys reset on restart.'} Downloads: ${result.directory}`);
+    }
+  } catch (error) {
+    $('musicStatus').textContent = error.message;
+  } finally { musicPolling = false; }
+}
+$('musicGenerate').onclick = async () => {
+  if (musicSubmitting || musicPending) return;
+  musicSubmitting = true;
+  $('musicGenerate').disabled = true;
+  $('musicDisconnect').disabled = true;
+  $('musicStatus').dataset.error = '';
+  $('musicStatus').textContent = 'Starting generation…';
+  const key = $('musicKey').value;
+  $('musicKey').value = '';
+  const request = {duration_seconds: Number($('musicDuration').value),
+    direction: $('musicDirection').value, instrumental: $('musicInstrumental').checked};
+  try {
+    await api('agent/music/settings', {api_key: key});
+    await api('agent/music/generate', request);
+    musicPending = true;
+  } catch (error) {
+    $('musicStatus').dataset.error = 'true';
+    $('musicStatus').textContent = error.message;
+  } finally {
+    musicSubmitting = false;
+    $('musicDisconnect').disabled = busy;
+    await refreshMusic();
+  }
+};
+$('musicDisconnect').onclick = async () => {
+  if (musicSubmitting) return;
+  $('musicKey').value = '';
+  try {
+    await api('agent/music/settings', {disconnect: true});
+    $('musicStatus').dataset.error = '';
+    await refreshMusic();
+  } catch (error) {
+    $('musicStatus').dataset.error = 'true';
+    $('musicStatus').textContent = error.message;
+  }
+};
+refreshMusic();
+setInterval(() => { if (!document.hidden) refreshMusic(); }, 2000);

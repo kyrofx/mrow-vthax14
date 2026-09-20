@@ -44,7 +44,7 @@ void HarnessWorker::start() {
         return;
     }
     for (const QString& name : {QStringLiteral("worker.py"), QStringLiteral("harness.py"),
-                 QStringLiteral("agent.py"), QStringLiteral("model.py"), QStringLiteral("scoring.py")}) {
+                 QStringLiteral("music.py"), QStringLiteral("agent.py"), QStringLiteral("model.py"), QStringLiteral("scoring.py")}) {
         QFile resource(QStringLiteral(":/agent/") + name);
         QFile target(QDir(m_code.path()).filePath(name));
         if (!resource.open(QIODevice::ReadOnly) || !target.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
