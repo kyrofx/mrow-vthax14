@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Separate tracks into vocal and instrumental stems, beside the track.
+
+Runs on a workstation, never on the Pi: a Pi 4 cannot separate audio in any
+useful time. The output travels with the USB drive, so a stick carries its own
+stems the way it already carries its own history and cue points.
+
+    Music/Artist - Title.mp3
+    Music/Artist - Title.stems/
+        vocals.opus
+        instrumental.opus
+        manifest.json
+
+BiteDJ plays the two stems in place of the original when the manifest matches
+the track it is loading (see RPI/bitedj_docs/stems.md). Needs `demucs` and
+`ffmpeg` on PATH.
+
+    ./separate-stems.py /Volumes/MUSIC/Contents          # a drive, or a folder
+    ./separate-stems.py track.mp3 --dry-run              # what it would do
+    ./separate-stems.py track.mp3 --force                # redo existing stems
+"""
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+MANIFEST_VERSION = 1
+STEMS_SUFFIX = '.stems'
+MANIFEST_NAME = 'manifest.json'
+VOCALS = 'vocals.opus'
+INSTRUMENTAL = 'instrumental.opus'
+AUDIO_SUFFIXES = {'.mp3', '.m4a', '.aac', '.flac', '.wav', '.aiff', '.aif', '.ogg', '.opus'}
+DEFAULT_MODEL = 'htdemucs'
+DEFAULT_BITRATE = '128k'
+
+
+def stems_dir(track):
+    """Where a track's stems live: alongside it, named after it."""
+    return track.with_name(track.name + STEMS_SUFFIX)
+
+
+def build_manifest(track, model, bitrate, frames=None, sample_rate=None):
+    """What the device checks before it trusts a stem set.
+
+    The source's size is the guard against stale stems: a re-encoded or
+    replaced track keeps its name but not its size, and checking it costs a
+    stat rather than a re-read of the whole file.
+    """
+    return {
+        'version': MANIFEST_VERSION,
+        'model': model,
+        'bitrate': bitrate,
+        'created': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        'source': {'name': track.name, 'bytes': track.stat().st_size},
+        'frames': frames,
+        'sample_rate': sample_rate,
+        'stems': {'vocals': VOCALS, 'instrumental': INSTRUMENTAL},
+    }
+
+
+def read_manifest(directory):
+    try:
+        with open(Path(directory) / MANIFEST_NAME, 'rb') as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def is_current(track, directory):
+    """True when `directory` holds stems that belong to this exact track."""
+    manifest = read_manifest(directory)
+    if not manifest or manifest.get('version') != MANIFEST_VERSION:
+        return False
+    source = manifest.get('source')
+    if not isinstance(source, dict):
+        return False
+    if source.get('name') != track.name or source.get('bytes') != track.stat().st_size:
+        return False
+    return all((Path(directory) / name).exists() for name in (VOCALS, INSTRUMENTAL))
+
+
+def find_tracks(paths):
+    """Audio files under the given files or directories, skipping stem output."""
+    found = []
+    for path in paths:
+        path = Path(path)
+        candidates = sorted(path.rglob('*')) if path.is_dir() else [path]
+        for candidate in candidates:
+            if (candidate.is_file() and candidate.suffix.lower() in AUDIO_SUFFIXES
+                    and STEMS_SUFFIX not in {p.suffix for p in candidate.parents}):
+                found.append(candidate)
+    return found
+
+
+def demucs_command(track, out_dir, model):
+    # --two-stems=vocals gives exactly the split we play: vocals, and
+    # everything else summed. Anything finer would cost CPU on the device for
+    # a control the DJ does not have.
+    return ['demucs', '--two-stems=vocals', '-n', model, '-o', str(out_dir), str(track)]
+
+
+def encode_command(source, target, bitrate):
+    return ['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', str(source),
+            '-c:a', 'libopus', '-b:a', bitrate, str(target)]
+
+
+def probe_command(path):
+    return ['ffprobe', '-v', 'error', '-select_streams', 'a:0',
+            '-show_entries', 'stream=sample_rate,duration_ts,duration',
+            '-of', 'json', str(path)]
+
+
+def probe(path, run):
+    """Sample rate and frame count of a rendered stem, for the manifest."""
+    try:
+        output = run(probe_command(path), capture_output=True, check=True).stdout
+        stream = json.loads(output)['streams'][0]
+    except (subprocess.CalledProcessError, ValueError, KeyError, IndexError, OSError):
+        return None, None
+    sample_rate = int(stream['sample_rate']) if stream.get('sample_rate') else None
+    frames = None
+    if stream.get('duration') and sample_rate:
+        # Round: duration is decimal seconds, so truncating loses a frame.
+        frames = round(float(stream['duration']) * sample_rate)
+    return frames, sample_rate
+
+
+def separate(track, model, bitrate, run, log=print):
+    """Separate one track into its stems directory. Returns the manifest."""
+    target = stems_dir(track)
+    with tempfile.TemporaryDirectory() as temp:
+        temp = Path(temp)
+        run(demucs_command(track, temp, model), check=True)
+        # demucs writes <out>/<model>/<track stem>/{vocals,no_vocals}.wav
+        rendered = {p.stem: p for p in temp.rglob('*.wav')}
+        if 'vocals' not in rendered or 'no_vocals' not in rendered:
+            raise RuntimeError(f'{track.name}: demucs produced {sorted(rendered)}')
+
+        staging = Path(str(target) + '.partial')
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True)
+        run(encode_command(rendered['vocals'], staging / VOCALS, bitrate), check=True)
+        run(encode_command(rendered['no_vocals'], staging / INSTRUMENTAL, bitrate), check=True)
+
+        frames, sample_rate = probe(staging / VOCALS, run)
+        manifest = build_manifest(track, model, bitrate, frames, sample_rate)
+        with open(staging / MANIFEST_NAME, 'w') as f:
+            json.dump(manifest, f, indent=2)
+            f.write('\n')
+
+    # Swap in only once everything is written: a half-finished stems directory
+    # beside a track is worse than none, because the device would try to play it.
+    shutil.rmtree(target, ignore_errors=True)
+    staging.rename(target)
+    log(f'  {target.name}')
+    return manifest
+
+
+def main(argv=None, run=subprocess.run, log=print, which=shutil.which):
+    parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    parser.add_argument('paths', nargs='+', help='Audio files, or folders to walk')
+    parser.add_argument('--model', default=DEFAULT_MODEL, help=f'demucs model (default {DEFAULT_MODEL})')
+    parser.add_argument('--bitrate', default=DEFAULT_BITRATE, help=f'Opus bitrate (default {DEFAULT_BITRATE})')
+    parser.add_argument('--force', action='store_true', help='Redo tracks that already have current stems')
+    parser.add_argument('--dry-run', action='store_true', help='List what would be separated')
+    args = parser.parse_args(argv)
+
+    tracks = find_tracks(args.paths)
+    if not tracks:
+        log('No audio files found.')
+        return 1
+
+    todo = [t for t in tracks if args.force or not is_current(t, stems_dir(t))]
+    log(f'{len(tracks)} track(s), {len(todo)} to separate'
+        f'{" (forced)" if args.force else ""}.')
+    if args.dry_run:
+        for track in todo:
+            log(f'  would separate {track}')
+        return 0
+    for tool in ('demucs', 'ffmpeg'):
+        if todo and not which(tool):
+            log(f'{tool} is not on PATH; this runs on a workstation, not the Pi.')
+            return 2
+
+    failed = 0
+    for index, track in enumerate(todo, 1):
+        log(f'[{index}/{len(todo)}] {track.name}')
+        try:
+            separate(track, args.model, args.bitrate, run, log)
+        except (subprocess.CalledProcessError, RuntimeError, OSError) as error:
+            failed += 1
+            log(f'  failed: {error}')
+    if failed:
+        log(f'{failed} track(s) failed.')
+    return 1 if failed else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
