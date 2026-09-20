@@ -183,8 +183,14 @@ reachable three ways:
 - The **BT** button on waybar
 - `Super+T`
 
-Tap a device to connect. Already-paired devices are listed first and connect on
-one tap, which is the common case at a venue; **Scan for new** is a separate,
+Tap a device, then confirm. The confirmation is deliberate: the rows are
+full-width on a screen that also has a DJ deck under it, and a mis-tap that
+silently reroutes audio mid-set is a far worse outcome than one extra tap. It is
+drawn inline rather than as a dialog, because this window is a layer-shell
+surface and a transient dialog parented to one does not reliably stack above it.
+
+Already-paired devices are listed first and reconnect in two taps, which is the
+common case at a venue; **Scan for new** is a separate,
 deliberate action that takes 12s. Devices that never advertised a name are hidden
 — bluez reports those with the MAC as the name, and they are beacons and
 trackers, never speakers.
@@ -215,11 +221,26 @@ bitedj-bt status
 
 `trust` matters: without it the speaker will not reconnect on its own next time.
 
-**If the speaker does not appear in a scan, it is not in pairing mode.** A JBL
-that is already connected to a phone will not advertise. Hold the Bluetooth
-button until it beeps and flashes, then scan again. A scan that returns dozens
-of bare-MAC devices and no speaker is a working Bluetooth stack finding beacons
-and trackers — not a broken one.
+**If the speaker does not appear, check two things, in this order.**
+
+1. **Is it actually in pairing mode?** A speaker already connected to a phone
+   will not enter pairing mode at all — turn the phone's Bluetooth off first,
+   then hold the speaker's Bluetooth button until it flashes fast. Pairing mode
+   also times out after a couple of minutes, so scan promptly.
+
+2. **Can bluez see it with a raw inquiry?**
+
+   ```bash
+   sudo hcitool scan --length=12
+   ```
+
+   If it shows up there but not in `bluetoothctl devices`, the discovery filter
+   is at fault, not the radio — see
+   [troubleshooting.md](troubleshooting.md#a-bluetooth-speaker-never-appears-in-a-scan).
+   Both tools here set `transport bredr` to avoid it.
+
+A scan that returns dozens of bare-MAC devices and no speaker is a working
+Bluetooth stack finding beacons and trackers — not a broken one.
 
 ### BiteDJ needs `pipewire-alsa` to reach it at all
 

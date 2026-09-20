@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Park the mouse cursor in a screen corner after every touch.
+
+sway moves the pointer to wherever you touch. On a touchscreen appliance that
+leaves the cursor sitting on whatever you last tapped, and `hide_cursor` then
+makes it invisible -- so the widget underneath keeps its hover/prelight state
+with nothing on screen to explain why. It reads as "an invisible mouse stuck
+hovering over part of the screen", which is exactly what it is.
+
+Neither sway nor wlroots will warp the pointer away on its own, so this watches
+the touchscreen and parks the cursor in the bottom-right corner shortly after
+each touch sequence ends. The corner is chosen because nothing there has a
+hover state worth triggering.
+
+A real mouse still works: this only reacts to touch events, and the next mouse
+movement takes the pointer wherever the user wants it.
+"""
+
+import os
+import subprocess
+import sys
+import threading
+
+import libevdev
+
+PARK_DELAY_SECONDS = 0.5
+
+
+def find_touchscreen():
+    override = os.environ.get("BITEDJ_TOUCH_DEV")
+    if override:
+        return override
+    for name in sorted(os.listdir("/dev/input")):
+        if not name.startswith("event"):
+            continue
+        path = f"/dev/input/{name}"
+        try:
+            with open(f"/sys/class/input/{name}/device/name") as fh:
+                label = fh.read().strip()
+        except OSError:
+            continue
+        low = label.lower()
+        if "ft5x06" in low or "touchscreen" in low or "touch screen" in low:
+            return path
+    return None
+
+
+def corner():
+    """Bottom-right pixel of the first active output."""
+    try:
+        out = subprocess.run(
+            ["swaymsg", "-t", "get_outputs", "-r"],
+            capture_output=True, text=True, timeout=10, check=False,
+        ).stdout
+        import json
+        for o in json.loads(out):
+            if o.get("active") and o.get("rect"):
+                r = o["rect"]
+                return r["x"] + r["width"] - 1, r["y"] + r["height"] - 1
+    except Exception:
+        pass
+    return 799, 479
+
+
+class Parker:
+    def __init__(self):
+        self.x, self.y = corner()
+        self.timer = None
+        self.lock = threading.Lock()
+
+    def park(self):
+        subprocess.run(
+            ["swaymsg", f"seat seat0 cursor set {self.x} {self.y}"],
+            capture_output=True, timeout=10, check=False,
+        )
+
+    def schedule(self):
+        # Debounced: a double tap or a drag should park once, after the last
+        # release, not fight the user mid-gesture.
+        with self.lock:
+            if self.timer is not None:
+                self.timer.cancel()
+            self.timer = threading.Timer(PARK_DELAY_SECONDS, self.park)
+            self.timer.daemon = True
+            self.timer.start()
+
+
+def main():
+    path = find_touchscreen()
+    if not path:
+        print("bitedj-cursor-park: no touchscreen found", file=sys.stderr)
+        return 1
+
+    parker = Parker()
+    parker.park()  # start from a known-good position
+
+    try:
+        fd = open(path, "rb")
+    except OSError as exc:
+        print(f"bitedj-cursor-park: cannot open {path}: {exc}", file=sys.stderr)
+        return 1
+
+    dev = libevdev.Device(fd)
+    for event in dev.events():
+        # BTN_TOUCH going 0 is the end of a touch sequence, however many
+        # fingers were involved.
+        if event.matches(libevdev.EV_KEY.BTN_TOUCH) and event.value == 0:
+            parker.schedule()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -118,6 +118,38 @@ bar block is launched on sway's own schedule and races the line above.
 
 ---
 
+## An invisible mouse is stuck hovering over part of the screen
+
+A button stays highlighted, or a region of the UI behaves as though the pointer
+is over it, with no cursor visible anywhere.
+
+**Cause:** sway moves the pointer to wherever you touch. After the tap the
+cursor stays there, and `seat * hide_cursor 3000` then makes it invisible — so
+the widget underneath keeps its hover state with nothing on screen to explain
+why. Neither sway nor wlroots warps the pointer away on its own.
+
+It is not a stuck or drifting mouse. Confirm by listening for events on the
+pointer and touch devices; silence means nothing is moving, it is just parked:
+
+```bash
+sudo evtest /dev/input/event9   # the mouse
+sudo evtest /dev/input/event4   # the touchscreen
+```
+
+**Fix:** `bitedj-cursor-park` watches the touchscreen and parks the cursor in
+the bottom-right corner shortly after each touch ends. It is started from the
+sway config. If the symptom is back, check it is running:
+
+```bash
+pgrep -af cursor-park
+swaymsg 'seat seat0 cursor set 799 479'   # park it by hand
+```
+
+A real mouse is unaffected — the daemon only reacts to touch, and the next
+mouse movement takes the pointer wherever you want it.
+
+---
+
 ## Bluetooth: org.bluez.Error.NotReady
 
 ```
@@ -139,6 +171,33 @@ Full detail in [audio.md](audio.md#it-comes-up-rfkill-blocked-from-cold).
 
 **A scan that finds dozens of bare-MAC devices but not your speaker is working
 correctly** — those are beacons and trackers. The speaker is not in pairing mode.
+
+---
+
+## A Bluetooth speaker never appears in a scan
+
+If it is definitely in pairing mode and still does not show, check whether bluez
+can see it *at all* with a raw inquiry, which bypasses bluez's discovery filters:
+
+```bash
+sudo hcitool scan --length=12
+```
+
+If the speaker appears there but not in `bluetoothctl devices`, the discovery
+**filter** is the problem, not the radio. Speakers are classic (BR/EDR) devices;
+with the default "auto" filter the results are dominated by LE beacons and the
+speaker reaches bluez only as a nameless LE *random* address — sharing only the
+last bytes of its real one. Its real address is never registered, so pairing then
+fails with `Device not available`, because bluez only pairs with what its own
+discovery recorded.
+
+`bitedj-bt scan` and the touch picker both set `transport bredr` for this reason.
+The filter is per-session, so the commands must run in one `bluetoothctl` session
+with stdin held open — otherwise bluetoothctl exits at EOF and takes the scan
+with it.
+
+**The most common cause of all, though:** a speaker already connected to a phone
+will not enter pairing mode. Turn the phone's Bluetooth off first.
 
 ---
 

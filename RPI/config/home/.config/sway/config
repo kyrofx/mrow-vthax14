@@ -84,6 +84,12 @@ exec --no-startup-id udiskie --automount --notify --no-tray
 ### authenticate instead of silently failing.
 exec --no-startup-id /usr/libexec/polkit-mate-authentication-agent-1
 
+### Park the cursor in a corner after each touch. sway moves the pointer to
+### wherever you tap, and hide_cursor then makes it invisible -- leaving the
+### widget underneath stuck in a hover state with nothing on screen to explain
+### it. See bitedj_docs/troubleshooting.md.
+exec --no-startup-id $HOME/.local/bin/bitedj-cursor-park
+
 ### Touchscreen gestures: three fingers down for the desktop, three up for
 ### BiteDJ. This is the only way back out of the appliance without a keyboard,
 ### so if gestures are not working, see bitedj_docs/desktop-access.md before

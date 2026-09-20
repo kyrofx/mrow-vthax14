@@ -273,13 +273,57 @@ class Picker(Gtk.Window):
         box.pack_start(label, True, True, 8)
         btn.add(box)
 
+        # Confirm first. These rows are full-width on a touchscreen that also
+        # has a DJ deck under it, and a mis-tap that silently reroutes audio
+        # mid-set is a much worse outcome than one extra tap.
         if is_connected:
-            btn.connect("clicked", lambda _b: self.on_disconnect(mac, name))
+            btn.connect("clicked", lambda _b: self.confirm(
+                f"Disconnect {name}?", "Disconnect",
+                lambda: self.on_disconnect(mac, name)))
         else:
-            btn.connect("clicked", lambda _b: self.on_connect(mac, name, is_paired))
+            btn.connect("clicked", lambda _b: self.confirm(
+                f"Connect to {name}?", "Connect",
+                lambda: self.on_connect(mac, name, is_paired)))
 
         row.add(btn)
         return row
+
+    # ---------------------------------------------------------- confirmation
+    def confirm(self, question, verb, action):
+        """Swap the list for a large two-button confirmation.
+
+        Drawn inline, not as a Gtk.Dialog: this window is a layer-shell
+        surface, and a transient dialog parented to one does not reliably
+        stack above it -- the prompt would be invisible, which is worse than
+        no prompt at all.
+        """
+        for child in self.list.get_children():
+            self.list.remove(child)
+
+        self.set_message(question)
+
+        row = Gtk.ListBoxRow()
+        row.set_selectable(False)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
+                      homogeneous=True)
+        box.set_margin_top(24)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        cancel = Gtk.Button(label="Cancel")
+        cancel.set_size_request(-1, ROW_HEIGHT + 16)
+        cancel.connect("clicked", lambda _b: self.refresh())
+
+        go = Gtk.Button(label=verb)
+        go.set_size_request(-1, ROW_HEIGHT + 16)
+        go.connect("clicked", lambda _b: action())
+
+        # Cancel on the left, where a thumb reaching for the list lands first.
+        box.pack_start(cancel, True, True, 0)
+        box.pack_start(go, True, True, 0)
+        row.add(box)
+        self.list.add(row)
+        self.list.show_all()
 
     # --------------------------------------------------------------- actions
     def on_connect(self, mac, name, is_paired):
