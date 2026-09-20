@@ -29,8 +29,15 @@ the compiler may emit instructions that fault on the device.
 ## Host setup
 
 ```sh
-brew install colima docker docker-compose
+brew install colima docker docker-compose rsync
 ```
+
+`rsync` is not optional on macOS. The system ships **openrsync** at
+`/usr/bin/rsync`, which reports itself as "rsync 2.6.9 compatible" and has
+neither `--info=stats0` nor the rsync 3.4 argument protection that `deploy.sh`
+relies on for remote paths. Without GNU rsync the deploy fails partway with an
+rsync usage dump. Homebrew's copy takes precedence on `PATH`; confirm with
+`rsync --version` (you want 3.x).
 
 Homebrew installs Compose where the `docker` CLI does not look by default, so
 `docker compose` (the v2 subcommand, which `deploy.sh` uses) will not resolve
