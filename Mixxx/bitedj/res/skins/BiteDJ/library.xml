@@ -74,7 +74,7 @@
                   <LibrarySidebar>
                     <ObjectName>LibrarySidebar</ObjectName>
                     <Size>0me,0me</Size>
-                    <HiddenFeatures>Tracks,Auto DJ,Playlists,Crates</HiddenFeatures>
+                    <HiddenFeatures>Tracks,Auto DJ,Crates</HiddenFeatures>
                   </LibrarySidebar>
                 </Children>
                 <Connection>

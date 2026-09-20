@@ -1492,22 +1492,6 @@ WBeatSpinBox::up-button {
   padding: 10px 16px;
 }
 
-/* Status line: dim when the harness is offline, blue when it is answering on
- * its own, highlight purple when the cloud model refined the picks. */
-#HarnessPanel #HarnessStatus {
-  color: #a7a9ac;
-  font-size: 13px;
-  min-height: 44px;
-}
-
-#HarnessPanel #HarnessStatus[status="offline"] {
-  color: #c2453d;
-}
-
-#HarnessPanel #HarnessStatus[status="model"] {
-  color: #b48ed6;
-}
-
 #HarnessPanel #HarnessNowPlaying,
 #HarnessPanel #HarnessSuggestion,
 #HarnessPanel #HarnessEmpty {
@@ -1909,7 +1893,7 @@ QDialog[bitedjAssistDialog="true"] #AssistDialogTitle {
   border-radius: 6px;
   padding: 10px;
   font-size: 18px;
-  font-weight: bold;
+  font-weight: normal;
 }
 
 /* Encoder-selected recommendation, matching the browser's visible selection. */

@@ -729,6 +729,9 @@ void LibraryControl::slotMoveDown(double v) {
 }
 
 void LibraryControl::slotMoveVertical(double v) {
+    if (auto* assist = WHarnessPanel::activePanel(); assist && assist->moveSetlistSelection(static_cast<int>(v))) {
+        return;
+    }
     if (auto* assist = WHarnessPanel::activePanel(); assist && !QApplication::activeModalWidget()) {
         assist->moveSelection(static_cast<int>(v));
         return;
@@ -802,6 +805,9 @@ void LibraryControl::slotScrollDown(double v) {
 }
 
 void LibraryControl::slotScrollVertical(double v) {
+    if (auto* assist = WHarnessPanel::activePanel(); assist && assist->moveSetlistSelection(static_cast<int>(v))) {
+        return;
+    }
     if (auto* assist = WHarnessPanel::activePanel(); assist && !QApplication::activeModalWidget()) {
         assist->moveSelection(static_cast<int>(v));
         return;
@@ -842,6 +848,9 @@ void LibraryControl::slotMoveFocusBackward(double v) {
 }
 
 void LibraryControl::slotMoveFocus(double v) {
+    if (auto* assist = WHarnessPanel::activePanel(); assist && assist->moveSetlistSelection(0)) {
+        return;
+    }
     if (auto* assist = WHarnessPanel::activePanel(); assist && !QApplication::activeModalWidget()) {
         // Like Browse, encoder press focuses the selection; LOAD loads it.
         assist->moveSelection(0);

@@ -204,6 +204,8 @@ class MusicTests(unittest.TestCase):
         for _ in range(2):
             dispatch(restarted, '/api/agent/music/consume', {'path': upcoming[0]['path']})
         self.assertEqual(restarted.music.view()['upcoming'], [])
+        self.assertEqual(len(restarted.music.view()['completed']), 1)
+        self.assertEqual(restarted.music.view()['completed'][0]['path'], upcoming[0]['path'])
         self.assertEqual(restarted.music.view()['jobs'][0]['state'], 'complete')
 
     def brief_client(self, response=None):

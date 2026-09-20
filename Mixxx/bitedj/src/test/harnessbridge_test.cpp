@@ -16,6 +16,9 @@
 #include <QTest>
 #include <QSignalSpy>
 #include <QDialog>
+#include <QListWidget>
+#include <QSpinBox>
+#include <QPushButton>
 #include <QLabel>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -510,6 +513,10 @@ TEST_F(HarnessBridgeTest, GeneratedSongImportsAndQueuesWithoutOpenDialog) {
     EXPECT_EQ(QStringLiteral("Crowd Mix test"), query.value(0).toString());
     EXPECT_EQ(QStringLiteral("ElevenLabs"), query.value(1).toString());
     EXPECT_FALSE(query.next());
+    auto& playlists = internalCollection()->getPlaylistDAO();
+    const int playlist = playlists.getPlaylistIdFromName(QStringLiteral("ElevenLabs"));
+    ASSERT_GE(playlist, 0);
+    EXPECT_EQ(1, playlists.getTrackIds(playlist).size());
     EXPECT_EQ(12, m_harness.requests("/api/agent").last().body.value("count").toInt());
     m_pBridge->skipSuggestion(0);
     ASSERT_TRUE(waitFor([&] { return !m_harness.requests("/api/agent/music/consume").isEmpty(); }));
@@ -532,6 +539,7 @@ TEST_F(HarnessBridgeTest, NewAdviceIsVisibleWhileScrolledAndUnchangedPollingIsQu
     auto* response = panel.findChild<QLabel*>(QStringLiteral("HarnessResponse"));
     ASSERT_NE(nullptr, response);
     EXPECT_TRUE(response->isVisible());
+    EXPECT_EQ(nullptr, panel.findChild<QLabel*>(QStringLiteral("HarnessStatus")));
     EXPECT_TRUE(response->text().contains(QStringLiteral("Keep the house groove")));
     auto* scroll = panel.findChild<QScrollArea*>();
     ASSERT_NE(nullptr, scroll);
@@ -597,4 +605,66 @@ TEST_F(HarnessBridgeTest, BrowseEncoderSelectsAssistRowsAndPreservesTrackAcrossR
     dialog.close();
     panel.hide();
     EXPECT_EQ(nullptr, WHarnessPanel::activePanel());
+}
+
+TEST_F(HarnessBridgeTest, CompletedMusicBackfillsPlaylistWithoutRequeueOrDuplicates) {
+    QTemporaryDir directory;
+    const QString path = directory.filePath(QStringLiteral("old.wav"));
+    ASSERT_TRUE(QFile::copy(getTestDir().filePath(QStringLiteral("sine-30.wav")), path));
+    ASSERT_TRUE(m_harness.listen());
+    m_harness.replies["/api/agent/music/view"] = QJsonObject{
+        {"upcoming", QJsonArray{}},
+        {"completed", QJsonArray{QJsonObject{{"path", path}, {"title", "Previously played"}}}}};
+    config()->setValue(ConfigKey("[Harness]", "external"), true);
+    config()->setValue(ConfigKey("[Harness]", "url"), m_harness.url());
+    auto collection = std::shared_ptr<TrackCollectionManager>(trackCollectionManager(), [](TrackCollectionManager*) {});
+    auto& playlists = internalCollection()->getPlaylistDAO();
+    for (int restart = 0; restart < 2; ++restart) {
+        m_pBridge = std::make_unique<HarnessBridge>(config(), nullptr, collection);
+        const int requests = m_harness.requests("/api/agent/music/view").size();
+        ASSERT_TRUE(waitFor([&] { return m_harness.requests("/api/agent/music/view").size() > requests &&
+                playlists.getPlaylistIdFromName(QStringLiteral("ElevenLabs")) >= 0; }));
+        const int id = playlists.getPlaylistIdFromName(QStringLiteral("ElevenLabs"));
+        ASSERT_TRUE(waitFor([&] { return playlists.getTrackIds(id).size() == 1; }));
+        for (const auto& song : m_pBridge->suggestions()) EXPECT_NE(path, song.path);
+        m_pBridge.reset();
+    }
+}
+
+TEST_F(HarnessBridgeTest, SetlistEncoderScrollsSongsInsteadOfOptions) {
+    ASSERT_TRUE(m_harness.listen());
+    QJsonArray tracks;
+    for (int i = 0; i < 20; ++i) tracks.append(QJsonObject{{"id", QString::number(i)}, {"title", QStringLiteral("Track %1").arg(i)}});
+    QJsonObject plan{{"tracks", tracks}, {"requested", 20}, {"returned", 20}};
+    m_harness.replies["/api/agent"].insert("plan", plan);
+    startBridge();
+    ControlPushButton touch(ConfigKey("[Controls]", "touch_shift"));
+    LibraryControl controls(nullptr);
+    WHarnessPanel panel;
+    panel.resize(800, 480);
+    panel.show();
+    ASSERT_TRUE(waitFor([&] { return !m_pBridge->agentPlan().isEmpty() && !m_pBridge->agentBusy(); }));
+    for (auto* button : panel.findChildren<QPushButton*>()) if (button->text() == QStringLiteral("Setlist")) button->click();
+    auto* dialog = panel.findChild<QDialog*>(QStringLiteral("HarnessSetlistDialog"));
+    ASSERT_NE(nullptr, dialog);
+    auto* list = dialog->findChild<QListWidget*>(QStringLiteral("HarnessSetlistSongs"));
+    ASSERT_NE(nullptr, list);
+    auto* count = dialog->findChild<QSpinBox*>();
+    ASSERT_NE(nullptr, count);
+    count->setFocus();
+    QCoreApplication::processEvents();
+    ControlObject::set(ConfigKey("[Library]", "MoveVertical"), 14);
+    EXPECT_EQ(14, list->currentRow());
+    EXPECT_EQ(20, count->value());
+    EXPECT_TRUE(list->viewport()->rect().contains(list->visualItemRect(list->currentItem()).center()));
+    tracks.prepend(tracks.takeAt(14));
+    plan.insert("tracks", tracks);
+    m_harness.replies["/api/agent"].insert("plan", plan);
+    m_pBridge->refreshSuggestions();
+    ASSERT_TRUE(waitFor([&] { return list->currentRow() == 0 && !m_pBridge->agentBusy(); }));
+    EXPECT_EQ(QStringLiteral("14"), list->currentItem()->data(Qt::UserRole).toString());
+    ControlObject::set(ConfigKey("[Library]", "MoveVertical"), -1);
+    EXPECT_EQ(19, list->currentRow());
+    dialog->close();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 }

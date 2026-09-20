@@ -416,17 +416,17 @@ bool HarnessBridge::loadSuggestion(int index, int deckNumber) {
     return loadTrack(m_suggestions.at(index), deckNumber);
 }
 
-void HarnessBridge::loadPlanTrack(int index, int deckNumber) {
+bool HarnessBridge::loadPlanTrack(int index, int deckNumber) {
     const QJsonArray tracks = m_agentPlan.value(QStringLiteral("tracks")).toArray();
     if (index < 0 || index >= tracks.size() || agentBusy()) {
-        return;
+        return false;
     }
     const QJsonObject track = tracks.at(index).toObject();
     Suggestion suggestion;
     suggestion.trackId = track.value(QStringLiteral("id")).toString();
     suggestion.path = track.value(QStringLiteral("path")).toString();
     suggestion.title = track.value(QStringLiteral("title")).toString();
-    loadTrack(suggestion, deckNumber);
+    return loadTrack(suggestion, deckNumber);
 }
 
 bool HarnessBridge::loadTrack(const Suggestion& suggestion, int deckNumber) {
@@ -705,7 +705,6 @@ void HarnessBridge::requestSuggestions() {
         if (fingerprint != m_adviceFingerprint) {
             m_adviceFingerprint = fingerprint;
             emit adviceReceived(summary);
-            publish(tr("Agent response ready: %1").arg(summary.left(180)), false);
         }
         mergeSuggestions();
         emit stateChanged();
@@ -761,11 +760,14 @@ void HarnessBridge::pollGeneratedMusic() {
         if (reply.contains(QStringLiteral("error"))) {
             return;
         }
-        QList<Suggestion> upcoming;
-        for (const auto& value : reply.value(QStringLiteral("upcoming")).toArray()) {
+        const auto pending = reply.value(QStringLiteral("upcoming")).toArray();
+        const auto completed = reply.contains(QStringLiteral("completed"))
+                ? reply.value(QStringLiteral("completed")).toArray() : pending;
+        bool imported = false;
+        for (const auto& value : completed) {
             const auto job = value.toObject();
             const QString path = job.value(QStringLiteral("path")).toString();
-            if (m_consumedMusic.contains(path) || !QFileInfo::exists(path)) {
+            if (!QFileInfo::exists(path)) {
                 continue;
             }
             const QString title = job.value(QStringLiteral("title")).toString();
@@ -780,11 +782,25 @@ void HarnessBridge::pollGeneratedMusic() {
                 if (m_pTrackCollectionManager->saveTrack(track) == TrackCollectionManager::SaveTrackResult::Failed) {
                     continue;
                 }
+                auto& playlists = m_pTrackCollectionManager->internalCollection()->getPlaylistDAO();
+                int playlist = playlists.getPlaylistIdFromName(QStringLiteral("ElevenLabs"));
+                if (playlist < 0) playlist = playlists.createPlaylist(QStringLiteral("ElevenLabs"));
+                if (playlist < 0 || (!playlists.getTrackIds(playlist).contains(track->getId()) &&
+                                           !playlists.appendTrackToPlaylist(track->getId(), playlist))) {
+                    continue;
+                }
                 m_importedMusic.insert(path);
+                imported = true;
             }
+        }
+        QList<Suggestion> upcoming;
+        for (const auto& value : pending) {
+            const auto job = value.toObject();
+            const QString path = job.value(QStringLiteral("path")).toString();
+            if (m_consumedMusic.contains(path) || !m_importedMusic.contains(path) || !QFileInfo::exists(path)) continue;
             Suggestion song;
             song.trackId = mixxx::harness::trackIdForLocation(path, mountedDrives());
-            song.title = title;
+            song.title = job.value(QStringLiteral("title")).toString();
             song.artist = QStringLiteral("ElevenLabs");
             song.path = path;
             song.reason = tr("Newly generated · added to library · tempo/key pending analysis");
@@ -796,8 +812,8 @@ void HarnessBridge::pollGeneratedMusic() {
         m_generatedSuggestions = upcoming;
         if (before != after) {
             mergeSuggestions();
-            syncDrives();
         }
+        if (imported) syncDrives();
     });
 }
 

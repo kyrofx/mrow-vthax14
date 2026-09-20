@@ -326,7 +326,9 @@ its two-second polling cycle, sets artist **ElevenLabs** and title **Crowd Mix <
 and places them first in Assist as **EL: Crowd Mix <short job ID>**. This works with
 the generation dialog closed and recovers unfinished imports after restart.
 Playing or skipping removes the generated priority entry persistently; the library
-file remains. BPM/key are unknown until analyzed; the priority entry does not claim
+file remains in **Browse → Playlists → ElevenLabs**. Previously completed songs,
+including played/skipped songs, are backfilled into that playlist without duplicates.
+BPM/key are unknown until analyzed; the priority entry does not claim
 transition compatibility. Generation never loads a deck or starts playback.
 
 On the Assist page, the browse knob highlights a recommendation and scrolls it
@@ -334,7 +336,11 @@ into view. The built-in and FLX4 **Load 1 / Load 2** buttons load that highlight
 song into the corresponding stopped deck and return to Play. Turning past either
 end wraps the selection, as in Browse. The selected song is retained when advice
 reorders; if it disappears, the first remaining song is selected. Knob press brings
-the selection into view without loading. Open dialogs block deck-load shortcuts.
+the selection into view without loading. In **Generate setlist**, the knob selects
+and scrolls through songs regardless of which generation option has focus. Hardware
+Load loads the selected setlist song and closes the dialog. Other open dialogs block
+deck-load shortcuts. Agent advice appears once in the purple response box in regular
+weight text, without a duplicate status line or response notification.
 
 Assist shows up to **12** entries. Generated entries have priority; remaining slots
 contain the model/local recommendations or the current rolling setlist. Local ranking
@@ -355,7 +361,7 @@ The private-worker and localhost developer HTTP commands are:
   instrumental, inspire_current}`; direction is `follow crowd`, `build`, `hold`, or `ease down`.
   Returns a job ID immediately.
 - `POST /api/agent/music/view`: returns configuration and the latest 20 jobs with
-  `generating`, `complete`, or `failed` state, plus local paths/errors and the persistent `upcoming` generation queue.
+  `generating`, `complete`, or `failed` state, plus local paths/errors and the persistent `upcoming` generation queue and all `completed` song IDs/paths for playlist backfill.
 - `POST /api/agent/music/consume`: `{path}` removes a completed song from that priority queue without deleting its file.
 
 Tests mock the provider: `python3 -m unittest discover -s harness/tests -v`.

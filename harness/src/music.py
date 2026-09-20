@@ -81,8 +81,10 @@ class Music:
         with self.harness.connect() as db:
             rows = db.execute('SELECT * FROM music_jobs ORDER BY created DESC, rowid DESC LIMIT 20').fetchall()
             pending = db.execute("SELECT * FROM music_jobs WHERE state='complete' AND path NOT IN (SELECT path FROM music_consumed) ORDER BY created DESC, rowid DESC").fetchall()
+            completed = db.execute("SELECT id,path FROM music_jobs WHERE state='complete' ORDER BY created, rowid").fetchall()
         decorate = lambda row: {**dict(row), 'title': 'Crowd Mix ' + row['id'][:8]}
         return {'jobs': [decorate(row) for row in rows],
+                'completed': [decorate(row) for row in completed],
                 'upcoming': [decorate(row) for row in pending], **self.settings({})}
 
     def prompt(self, direction, session=None, inspire=False):

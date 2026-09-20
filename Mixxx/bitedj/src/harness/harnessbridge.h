@@ -150,7 +150,7 @@ class HarnessBridge : public QObject {
     QJsonObject agentPlan() const { return m_agentPlan; }
     bool agentBusy() const { return m_suggestionsInFlight || m_requestInFlight || !m_queue.isEmpty(); }
     void planSet(int count, const QString& direction, bool clear = false);
-    void loadPlanTrack(int index, int deckNumber);
+    bool loadPlanTrack(int index, int deckNumber);
     void agentRequest(const QString& path, const QJsonObject& body, QObject* context,
             std::function<void(const QJsonObject&)> callback);
     /// Start a new set: new session name, empty "played" list in the harness.

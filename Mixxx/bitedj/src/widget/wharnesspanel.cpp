@@ -32,7 +32,6 @@
 
 namespace {
 
-const char* kStatusObjectName = "HarnessStatus";
 const char* kNowPlayingObjectName = "HarnessNowPlaying";
 const char* kRateButtonObjectName = "HarnessRateButton";
 const char* kRefreshButtonObjectName = "HarnessRefreshButton";
@@ -40,10 +39,8 @@ const char* kSuggestionObjectName = "HarnessSuggestion";
 const char* kLoadButtonObjectName = "HarnessLoadButton";
 const char* kSkipButtonObjectName = "HarnessSkipButton";
 const char* kEmptyObjectName = "HarnessEmpty";
-// [selected] marks the rating given to the current play; [status] colours the
-// status line (offline / heuristic / model).
+// [selected] marks the rating given to the current play.
 const char* kSelectedProperty = "selected";
-const char* kStatusProperty = "status";
 
 // Columns: text, then Load 1, Load 2, Skip.
 constexpr int kColumns = 4;
@@ -71,18 +68,6 @@ void presentDialog(QDialog* dialog) {
     dialog->activateWindow();
 }
 
-QString statusName(HarnessBridge::Status status) {
-    switch (status) {
-    case HarnessBridge::Status::Model:
-        return QStringLiteral("model");
-    case HarnessBridge::Status::Heuristic:
-        return QStringLiteral("heuristic");
-    case HarnessBridge::Status::Offline:
-        break;
-    }
-    return QStringLiteral("offline");
-}
-
 } // anonymous namespace
 
 WHarnessPanel::WHarnessPanel(QWidget* parent)
@@ -90,7 +75,6 @@ WHarnessPanel::WHarnessPanel(QWidget* parent)
           m_pScrollArea(new QScrollArea(this)),
           m_pContent(new QWidget(m_pScrollArea)),
           m_pLayout(new QGridLayout(m_pContent)),
-          m_pStatus(new QLabel(this)),
           m_pResponse(new QLabel(this)),
           m_pNowPlaying(new QLabel(this)) {
     setAttribute(Qt::WA_StyledBackground, true);
@@ -124,16 +108,12 @@ WHarnessPanel::WHarnessPanel(QWidget* parent)
     // Keep rows pinned to the top instead of spreading down the panel.
     m_pLayout->setRowStretch(100, 1);
 
-    m_pStatus->setObjectName(kStatusObjectName);
-    m_pStatus->setTextFormat(Qt::PlainText);
-    m_pStatus->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    m_pLayout->addWidget(m_pStatus, 0, 0, 1, kColumns - 1);
     QPushButton* pRefresh = addButton(tr("Refresh"), kRefreshButtonObjectName, [] {
         if (HarnessBridge* pBridge = HarnessBridge::tryInstance()) {
             pBridge->refreshSuggestions();
         }
     });
-    m_pLayout->addWidget(pRefresh, 0, kColumns - 1);
+    m_pLayout->addWidget(pRefresh, 0, 0, 1, kColumns);
 
     // The play being rated, then the three crowd ratings beside it.
     m_pNowPlaying->setObjectName(kNowPlayingObjectName);
@@ -222,15 +202,39 @@ void WHarnessPanel::moveSelection(int steps) {
     updateSelection(true);
 }
 
+bool WHarnessPanel::moveSetlistSelection(int steps) {
+    auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+    if (!dialog || dialog != findChild<QDialog*>(QStringLiteral("HarnessSetlistDialog"))) {
+        return false;
+    }
+    auto* list = dialog->findChild<QListWidget*>(QStringLiteral("HarnessSetlistSongs"));
+    if (!list) return true;
+    if (list->count()) {
+        const int count = list->count();
+        const int current = std::max(0, list->currentRow());
+        list->setCurrentRow(((current + steps % count) % count + count) % count);
+        list->scrollToItem(list->currentItem(), QAbstractItemView::EnsureVisible);
+    }
+    list->setFocus(Qt::OtherFocusReason);
+    return true;
+}
+
 bool WHarnessPanel::loadSelectedTrack(const QString& group) {
     auto* bridge = HarnessBridge::tryInstance();
-    if (!bridge || QApplication::activeModalWidget() || !isVisible()) {
+    if (!bridge || !isVisible()) {
         return false;
     }
     const int deck = group == QStringLiteral("[Channel1]") ? 1
             : group == QStringLiteral("[Channel2]") ? 2 : 0;
     if (!deck) {
         return false;
+    }
+    if (auto* modal = QApplication::activeModalWidget()) {
+        if (modal != findChild<QDialog*>(QStringLiteral("HarnessSetlistDialog"))) return false;
+        auto* list = modal->findChild<QListWidget*>(QStringLiteral("HarnessSetlistSongs"));
+        if (!list || !bridge->loadPlanTrack(list->currentRow(), deck)) return false;
+        modal->close();
+        return true;
     }
     const auto suggestions = bridge->suggestions();
     for (int i = 0; i < suggestions.size(); ++i) {
@@ -270,7 +274,7 @@ void WHarnessPanel::onStateChanged() {
 void WHarnessPanel::updateHeader() {
     HarnessBridge* pBridge = HarnessBridge::tryInstance();
     if (!pBridge) {
-        m_pStatus->setText(tr("Assist is not available in this build"));
+        m_pResponse->hide();
         m_pNowPlaying->clear();
         return;
     }
@@ -289,13 +293,11 @@ void WHarnessPanel::updateHeader() {
     if (!pBridge->statusDetail().isEmpty()) {
         status += QStringLiteral(": ") + pBridge->statusDetail();
     }
-    m_pStatus->setText(pBridge->agentBusy() ? tr("Agent is planning…") : status);
-    m_pStatus->setToolTip(status);
     const QString response = pBridge->adviceSummary();
-    m_pResponse->setVisible(!response.isEmpty());
-    m_pResponse->setText((pBridge->agentBusy() ? tr("Updating advice…\n") : tr("Agent response\n")) + response);
-    m_pStatus->setProperty(kStatusProperty, statusName(pBridge->status()));
-    restyle(style(), m_pStatus);
+    m_pResponse->show();
+    m_pResponse->setText(response.isEmpty()
+                    ? (pBridge->agentBusy() ? tr("Agent is planning…") : status)
+                    : (pBridge->agentBusy() ? tr("Updating advice…\n") : tr("Agent response\n")) + response);
 
     const QString current = pBridge->currentTrackLabel();
     m_pNowPlaying->setText(current.isEmpty() ? tr("Nothing played yet") : current);
@@ -555,6 +557,7 @@ void WHarnessPanel::showSetlist() {
     }
     layout->addLayout(controls);
     auto* list = new QListWidget(dialog);
+    list->setObjectName(QStringLiteral("HarnessSetlistSongs"));
     list->setWordWrap(true);
     layout->addWidget(list);
     auto* buttons = new QHBoxLayout;
@@ -571,6 +574,8 @@ void WHarnessPanel::showSetlist() {
     auto refresh = [=] {
         const QJsonObject plan = bridge->agentPlan();
         const int selected = list->currentRow();
+        const QString selectedId = list->currentItem() ? list->currentItem()->data(Qt::UserRole).toString() : QString();
+        int retained = -1;
         list->clear();
         for (const auto& value : plan.value(QStringLiteral("tracks")).toArray()) {
             const QJsonObject track = value.toObject();
@@ -580,8 +585,11 @@ void WHarnessPanel::showSetlist() {
                                   .arg(track.value(QStringLiteral("artist")).toString())
                                   .arg(track.value(QStringLiteral("bpm")).toDouble(), 0, 'f', 1)
                                   .arg(track.value(QStringLiteral("model_reason")).toString()));
+            list->item(list->count() - 1)->setData(Qt::UserRole, track.value(QStringLiteral("id")).toString());
+            if (track.value(QStringLiteral("id")).toString() == selectedId) retained = list->count() - 1;
         }
-        list->setCurrentRow(selected >= 0 && selected < list->count() ? selected : 0);
+        list->setCurrentRow(retained >= 0 ? retained : selected >= 0 && selected < list->count() ? selected : 0);
+        if (list->currentItem()) list->scrollToItem(list->currentItem(), QAbstractItemView::EnsureVisible);
         status->setText(bridge->agentBusy() ? tr("Updating the plan…")
                 : plan.isEmpty() ? tr("Choose a direction to generate a setlist. Crowd ratings adjust the upcoming songs.")
                                  : QStringLiteral("%1 / %2 songs · %3\n%4")

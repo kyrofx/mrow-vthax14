@@ -39,6 +39,7 @@ class WHarnessPanel : public WWidget {
     static WHarnessPanel* activePanel();
     void moveSelection(int steps);
     bool loadSelectedTrack(const QString& group);
+    bool moveSetlistSelection(int steps);
     QString selectedTrackId() const { return m_selectedTrackId; }
 
   protected:
@@ -67,7 +68,6 @@ class WHarnessPanel : public WWidget {
     QScrollArea* m_pScrollArea;
     QWidget* m_pContent;
     QGridLayout* m_pLayout;
-    QLabel* m_pStatus;
     QLabel* m_pResponse;
     QLabel* m_pNowPlaying;
     QList<QPushButton*> m_rateButtons;
