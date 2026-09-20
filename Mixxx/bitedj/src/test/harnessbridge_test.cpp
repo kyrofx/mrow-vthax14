@@ -315,7 +315,7 @@ TEST_F(HarnessBridgeTest, PlayRatingAndSuggestions) {
 
     ASSERT_EQ(1, m_pBridge->suggestions().size());
     const HarnessBridge::Suggestion suggestion = m_pBridge->suggestions().first();
-    EXPECT_EQ(QStringLiteral("Keeps the floor moving"), suggestion.reason);
+    EXPECT_EQ(QStringLiteral("Model: Keeps the floor moving"), suggestion.reason);
     EXPECT_EQ(QStringLiteral("8A"), suggestion.key);
     EXPECT_EQ(1.0, ControlObject::get(ConfigKey("[Harness]", "suggestion_count")));
     EXPECT_EQ(2.0, ControlObject::get(ConfigKey("[Harness]", "status")));
@@ -479,3 +479,35 @@ TEST_F(HarnessBridgeTest, LocalCatalogSyncDetectsMetadataEditsAndMissingFiles) {
 }
 
 } // namespace
+
+TEST_F(HarnessBridgeTest, GeneratedSongImportsAndQueuesWithoutOpenDialog) {
+    QTemporaryDir directory;
+    const QString path = directory.filePath(QStringLiteral("generated.wav"));
+    ASSERT_TRUE(QFile::copy(getTestDir().filePath(QStringLiteral("sine-30.wav")), path));
+    ASSERT_TRUE(m_harness.listen());
+    m_harness.replies.insert(QStringLiteral("/api/agent/music/view"),
+            QJsonObject{{"upcoming", QJsonArray{QJsonObject{{"path", path}, {"title", "Crowd Mix test"}}}}});
+    config()->setValue(ConfigKey("[Harness]", "external"), true);
+    config()->setValue(ConfigKey("[Harness]", "url"), m_harness.url());
+    auto collection = std::shared_ptr<TrackCollectionManager>(
+            trackCollectionManager(), [](TrackCollectionManager*) {});
+    m_pBridge = std::make_unique<HarnessBridge>(config(), nullptr, collection);
+    ASSERT_TRUE(waitFor([&] {
+        return !m_pBridge->suggestions().isEmpty() &&
+                m_pBridge->suggestions().first().artist == QStringLiteral("ElevenLabs");
+    }));
+    EXPECT_EQ(QStringLiteral("Crowd Mix test"), m_pBridge->suggestions().first().title);
+    QSqlQuery query(internalCollection()->database());
+    ASSERT_TRUE(query.exec("SELECT title,artist FROM library"));
+    ASSERT_TRUE(query.next());
+    EXPECT_EQ(QStringLiteral("Crowd Mix test"), query.value(0).toString());
+    EXPECT_EQ(QStringLiteral("ElevenLabs"), query.value(1).toString());
+    EXPECT_FALSE(query.next());
+    EXPECT_EQ(12, m_harness.requests("/api/agent").last().body.value("count").toInt());
+    m_pBridge->skipSuggestion(0);
+    ASSERT_TRUE(waitFor([&] { return !m_harness.requests("/api/agent/music/consume").isEmpty(); }));
+    EXPECT_EQ(path, m_harness.requests("/api/agent/music/consume").last().body.value("path").toString());
+    for (const auto& song : m_pBridge->suggestions()) {
+        EXPECT_NE(path, song.path);
+    }
+}

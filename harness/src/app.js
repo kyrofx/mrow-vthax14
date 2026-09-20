@@ -1,7 +1,7 @@
 let state = {tracks: [], plays: [], feedback: []}, setlist = [], busy = false, revision = null;
 let pendingPlay = null;
 let planBasis = null;
-let musicPending = false, musicSubmitting = false, musicPolling = false;
+let musicConnected = false, musicPending = false, musicSubmitting = false, musicPolling = false;
 const $ = id => document.getElementById(id);
 $('session').value = new URLSearchParams(location.search).get('session') || 'default';
 const session = () => $('session').value.trim();
@@ -31,7 +31,7 @@ async function action(fn) {
     busy = false;
     document.querySelectorAll('button,input,select').forEach(b => b.disabled = false);
     $('export').disabled = !setlist.length;
-    $('musicGenerate').disabled = musicPending || musicSubmitting;
+    $('musicGenerate').disabled = !musicConnected || musicPending || musicSubmitting;
   }
 }
 function button(text, fn) {
@@ -187,20 +187,16 @@ $('models').onclick = () => action(async () => {
   message('Model catalog loaded.');
 });
 $('connect').onclick = () => action(async () => {
-  const key = $('apiKey').value; $('apiKey').value = '';
-  await api('agent/settings', {api_key: key, next_model: $('nextModel').value, plan_model: $('planModel').value});
+  await api('agent/settings', {next_model: $('nextModel').value, plan_model: $('planModel').value});
   await refresh(); message('Models applied. See advice status for connection results.');
-});
-$('disconnect').onclick = () => action(async () => {
-  $('apiKey').value = '';
-  await api('agent/settings', {disconnect: true}); await refresh(); message('Disconnected. Local scoring is active.');
 });
 action(async () => {
   const config = await api('agent/settings');
   if (config.connected) {
     $('nextModel').value = config.next_model; $('planModel').value = config.plan_model;
-    $('apiKey').placeholder = 'Leave blank to keep runtime key';
+
   }
+  $('modelNote').textContent = config.connected ? 'API key configured.' : 'API key not configured. Provision it during installation and restart.';
   await refresh();
 });
 setInterval(() => { if (!busy && !document.hidden && !['INPUT', 'SELECT'].includes(document.activeElement.tagName)) action(() => refresh(true)); }, 5000);
@@ -210,17 +206,24 @@ async function refreshMusic() {
   musicPolling = true;
   try {
     const result = await api('agent/music/view');
+    musicConnected = result.connected;
     musicPending = result.jobs.some(job => job.state === 'generating');
-    $('musicGenerate').disabled = busy || musicPending || musicSubmitting;
+    $('musicGenerate').disabled = busy || !musicConnected || musicPending || musicSubmitting;
+    const latest = result.jobs[0];
+    if (latest) {
+      $('musicBrief').textContent = latest.state === 'generating' && latest.phase === 'briefing'
+        ? 'What we’re generating: Gemini is preparing the composition brief…'
+        : `What we’re generating (${latest.brief_source === 'gemini' ? 'Gemini' : 'direct feedback'}): ${latest.summary || ''} ${latest.brief_error || ''}`;
+    }
     $('musicJobs').replaceChildren();
     for (const job of result.jobs) {
       const li = document.createElement('li');
-      li.textContent = `${job.created} · ${job.state} · ${job.path || job.error || 'Generating and downloading…'}`;
+      li.textContent = `${job.created} · ${job.state} · ${job.path || job.error || 'Generating and downloading…'} · ${job.summary || ''} ${job.reasoning || ''}`;
       $('musicJobs').append(li);
     }
     if (!$('musicStatus').dataset.error) {
       $('musicStatus').textContent = result.provision_error || (musicPending ? 'Generating and downloading… Playback and feedback remain available.' :
-        `${result.connected ? 'Key configured.' : 'Enter an ElevenLabs key.'} ${result.provisioned ? 'Provisioned keys reload on restart.' : 'Runtime keys reset on restart.'} Downloads: ${result.directory}`);
+        `${result.connected ? 'Key configured.' : 'Key not configured. Provision it during installation and restart.'} ${result.provisioned ? 'Provisioned keys reload on restart.' : 'Runtime keys reset on restart.'} Downloads: ${result.directory}`);
     }
   } catch (error) {
     $('musicStatus').textContent = error.message;
@@ -230,15 +233,11 @@ $('musicGenerate').onclick = async () => {
   if (musicSubmitting || musicPending) return;
   musicSubmitting = true;
   $('musicGenerate').disabled = true;
-  $('musicDisconnect').disabled = true;
   $('musicStatus').dataset.error = '';
   $('musicStatus').textContent = 'Starting generation…';
-  const key = $('musicKey').value;
-  $('musicKey').value = '';
   const request = {duration_seconds: Number($('musicDuration').value),
-    direction: $('musicDirection').value, instrumental: $('musicInstrumental').checked};
+    direction: $('musicDirection').value, instrumental: $('musicInstrumental').checked, inspire_current: $('musicInspire').checked};
   try {
-    await api('agent/music/settings', {api_key: key});
     await api('agent/music/generate', request);
     musicPending = true;
   } catch (error) {
@@ -246,21 +245,9 @@ $('musicGenerate').onclick = async () => {
     $('musicStatus').textContent = error.message;
   } finally {
     musicSubmitting = false;
-    $('musicDisconnect').disabled = busy;
     await refreshMusic();
   }
 };
-$('musicDisconnect').onclick = async () => {
-  if (musicSubmitting) return;
-  $('musicKey').value = '';
-  try {
-    await api('agent/music/settings', {disconnect: true});
-    $('musicStatus').dataset.error = '';
-    await refreshMusic();
-  } catch (error) {
-    $('musicStatus').dataset.error = 'true';
-    $('musicStatus').textContent = error.message;
-  }
-};
+
 refreshMusic();
 setInterval(() => { if (!document.hidden) refreshMusic(); }, 2000);

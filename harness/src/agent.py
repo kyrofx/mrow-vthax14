@@ -66,8 +66,10 @@ class Agent:
                 key = key.strip()
                 if not key and self.clients and self.clients.get('next'):
                     key = self.clients['next'].config.api_key
+                if not key and self.clients is None and self.harness.model:
+                    key = self.harness.model.config.api_key
                 if not key:
-                    raise ValueError('Enter a Google Cloud Vertex AI API key')
+                    raise ValueError('Model key not configured. Provision it during installation and restart.')
                 models = [data.get('next_model'), data.get('plan_model')]
                 if any(not isinstance(m, str) or not m.strip() or len(m) > 200 for m in models):
                     raise ValueError('Select a model for next songs and setlists')
@@ -168,7 +170,7 @@ class Agent:
                         db.execute('INSERT OR REPLACE INTO agent_plans(session,body) VALUES (?,?)',
                                    (session, json.dumps(result)))
             return {**result, 'plan': result if planning else None,
-                    'tracks': result['tracks'][:5] if action == 'next' and planning else result['tracks']}
+                    'tracks': result['tracks'][:data.get('count', 12)] if action == 'next' and planning else result['tracks']}
 
     def decide(self, ranker, count, client, planning, old):
         baseline = ranker.plan(count) if planning else {

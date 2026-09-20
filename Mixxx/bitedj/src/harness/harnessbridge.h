@@ -10,6 +10,7 @@
 #include <QObject>
 #include <QStringList>
 #include <QTimer>
+#include <QSet>
 #include <QUrl>
 #include <functional>
 #include <memory>
@@ -55,9 +56,7 @@ class HarnessBridge : public QObject {
     Q_OBJECT
   public:
     /// Suggestions shown, and the `[Harness],*_suggestion_N` controls created.
-    /// Four is what the 800x480 panel fits below the topbar at the 56px touch
-    /// row height; a fifth row would be cut off.
-    static constexpr int kSuggestionCount = 4;
+    static constexpr int kSuggestionCount = 12;
     /// Decks a suggestion can be loaded into from the panel and controls.
     static constexpr int kLoadDeckCount = 2;
 
@@ -197,6 +196,9 @@ class HarnessBridge : public QObject {
     void scheduleRetry(const QString& reason);
     void probeHealth();
     void requestSuggestions();
+    void pollGeneratedMusic();
+    void mergeSuggestions();
+    void consumeGenerated(const QString& path);
     void loadTrack(const Suggestion& suggestion, int deckNumber);
     QNetworkReply* post(const QString& path, const QJsonObject& body, int timeoutMillis);
     void call(const QString& path, const QJsonObject& body, int timeoutMillis,
@@ -225,6 +227,12 @@ class HarnessBridge : public QObject {
     Status m_status;
     QString m_statusDetail;
     QList<Suggestion> m_suggestions;
+    QList<Suggestion> m_rankedSuggestions;
+    QList<Suggestion> m_generatedSuggestions;
+    QSet<QString> m_importedMusic;
+    QSet<QString> m_consumedMusic;
+    QTimer m_musicTimer;
+    bool m_musicInFlight = false;
     QJsonObject m_agentPlan;
     QJsonObject m_agentAction;
     CurrentPlay m_current;

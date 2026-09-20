@@ -215,8 +215,8 @@ python3 RPI/scripts/agent-config.py --validate "$HOME/.config/mrow/agent-next.js
 mv "$HOME/.config/mrow/agent-next.json" "$HOME/.config/mrow/agent.json"
 ```
 
-Restart BiteDJ to load the replacement. Runtime key changes and **Disconnect**
-affect only the current process; provisioned keys reload after restart. To remove
+Restart BiteDJ to load the replacement. Assist displays key status without key-entry
+fields. To remove
 a provider permanently, update the private file (omit `elevenlabs_api_key` to
 remove ElevenLabs), or remove the file to disable all provisioned credentials.
 
@@ -228,7 +228,9 @@ provisioned keys reloading on restart. Neither screen displays the stored keys.
 Configuration loading does not verify provider authentication. To verify music
 generation, rate a played song and press **Generate & download**; expect a
 completed job and an MP3 in `generated/` beside the harness database. This is a
-paid ElevenLabs request. Import and analyze the downloaded MP3 in Mixxx.
+paid ElevenLabs request. BiteDJ automatically imports the MP3 as artist **ElevenLabs**
+and places it first in Assist as **EL: Crowd Mix <short job ID>**, even with the popup
+closed. Analyze it for measured BPM/key; generation does not start playback.
 
 If provisioning is rejected, run the validation command as the appliance user.
 Check ownership, mode `600`, and the field names; symlinks and files readable by

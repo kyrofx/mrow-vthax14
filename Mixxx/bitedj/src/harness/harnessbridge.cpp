@@ -21,6 +21,7 @@
 #include "notifications/notifications.h"
 #include "preferences/systemsettings.h"
 #include "track/track.h"
+#include "track/trackref.h"
 #include "util/logger.h"
 #include "util/usbdevice.h"
 
@@ -182,6 +183,9 @@ HarnessBridge::HarnessBridge(UserSettingsPointer pConfig,
     });
     m_syncTimer.start();
 
+    m_musicTimer.setInterval(2000);
+    connect(&m_musicTimer, &QTimer::timeout, this, &HarnessBridge::pollGeneratedMusic);
+    m_musicTimer.start();
     probeHealth();
 }
 
@@ -293,6 +297,7 @@ void HarnessBridge::reportPlay(const Play& play) {
     if (!m_enabled || play.trackId.isEmpty()) {
         return;
     }
+    consumeGenerated(play.location);
     // Stable across retries of this play, unique across plays: a retry after a
     // timeout the harness did see returns the same play instead of a second one.
     const QString eventId = m_session + QLatin1Char(':') + play.group + QLatin1Char(':') +
@@ -388,6 +393,12 @@ void HarnessBridge::skipSuggestion(int index) {
     const Suggestion skipped = m_suggestions.takeAt(index);
     m_pCoSuggestionCount->forceSet(m_suggestions.size());
     emit stateChanged();
+    for (const auto& generated : m_generatedSuggestions) {
+        if (generated.trackId == skipped.trackId) {
+            consumeGenerated(skipped.path);
+            return;
+        }
+    }
     const QJsonObject body{
             {QStringLiteral("session"), m_session},
             {QStringLiteral("track_id"), skipped.trackId},
@@ -643,10 +654,10 @@ void HarnessBridge::requestSuggestions() {
             return;
         }
         m_agentPlan = reply.value(QStringLiteral("plan")).toObject();
-        m_suggestions.clear();
+        m_rankedSuggestions.clear();
         const QJsonArray tracks = reply.value(QStringLiteral("tracks")).toArray();
         for (const QJsonValue& value : tracks) {
-            if (m_suggestions.size() >= kSuggestionCount) {
+            if (m_rankedSuggestions.size() >= kSuggestionCount) {
                 break;
             }
             const QJsonObject track = value.toObject();
@@ -659,14 +670,17 @@ void HarnessBridge::requestSuggestions() {
             suggestion.path = track.value(QStringLiteral("path")).toString();
             suggestion.reason = track.value(QStringLiteral("model_reason")).toString();
             if (suggestion.reason.isEmpty()) {
-                suggestion.reason = track.value(QStringLiteral("reasons"))
-                                            .toArray()
-                                            .first()
-                                            .toString();
+                QStringList reasons;
+                for (const auto& reason : track.value(QStringLiteral("reasons")).toArray()) {
+                    reasons.append(reason.toString());
+                }
+                suggestion.reason = reasons.join(QStringLiteral(" · "));
+            } else {
+                suggestion.reason.prepend(tr("Model: "));
             }
-            m_suggestions.append(suggestion);
+            m_rankedSuggestions.append(suggestion);
         }
-        m_pCoSuggestionCount->forceSet(m_suggestions.size());
+        mergeSuggestions();
         const QString modelError = reply.value(QStringLiteral("model_error")).toString();
         if (reply.value(QStringLiteral("source")).toString() == QStringLiteral("model")) {
             setStatus(Status::Model, reply.value(QStringLiteral("summary")).toString());
@@ -676,6 +690,92 @@ void HarnessBridge::requestSuggestions() {
         emit stateChanged();
         if (m_suggestionsDirty) {
             requestSuggestions();
+        }
+    });
+}
+
+void HarnessBridge::mergeSuggestions() {
+    m_suggestions.clear();
+    QSet<QString> seen;
+    for (const auto& source : {m_generatedSuggestions, m_rankedSuggestions}) {
+        for (const auto& suggestion : source) {
+            if (m_suggestions.size() >= kSuggestionCount) {
+                break;
+            }
+            if (!seen.contains(suggestion.trackId) && !m_consumedMusic.contains(suggestion.path)) {
+                seen.insert(suggestion.trackId);
+                m_suggestions.append(suggestion);
+            }
+        }
+    }
+    m_pCoSuggestionCount->forceSet(m_suggestions.size());
+    emit stateChanged();
+}
+
+void HarnessBridge::consumeGenerated(const QString& path) {
+    if (path.isEmpty()) {
+        return;
+    }
+    bool generated = false;
+    for (const auto& song : m_generatedSuggestions) {
+        generated |= song.path == path;
+    }
+    if (!generated || m_consumedMusic.contains(path)) {
+        return;
+    }
+    m_consumedMusic.insert(path);
+    enqueue({QStringLiteral("/api/agent/music/consume"), {{QStringLiteral("path"), path}},
+            [this](const QJsonObject&) { pollGeneratedMusic(); }});
+    mergeSuggestions();
+}
+
+void HarnessBridge::pollGeneratedMusic() {
+    if (!m_enabled || !m_pTrackCollectionManager || m_musicInFlight) {
+        return;
+    }
+    m_musicInFlight = true;
+    call(QStringLiteral("/api/agent/music/view"), {}, kRequestTimeoutMillis, this,
+            [this](const QJsonObject& reply, bool) {
+        m_musicInFlight = false;
+        if (reply.contains(QStringLiteral("error"))) {
+            return;
+        }
+        QList<Suggestion> upcoming;
+        for (const auto& value : reply.value(QStringLiteral("upcoming")).toArray()) {
+            const auto job = value.toObject();
+            const QString path = job.value(QStringLiteral("path")).toString();
+            if (m_consumedMusic.contains(path) || !QFileInfo::exists(path)) {
+                continue;
+            }
+            const QString title = job.value(QStringLiteral("title")).toString();
+            if (!m_importedMusic.contains(path)) {
+                auto track = m_pTrackCollectionManager->getOrAddTrack(TrackRef::fromFilePath(path));
+                if (!track) {
+                    publish(tr("Could not import generated song: %1").arg(title), true);
+                    continue;
+                }
+                track->setArtist(QStringLiteral("ElevenLabs"));
+                track->setTitle(title);
+                if (m_pTrackCollectionManager->saveTrack(track) == TrackCollectionManager::SaveTrackResult::Failed) {
+                    continue;
+                }
+                m_importedMusic.insert(path);
+            }
+            Suggestion song;
+            song.trackId = mixxx::harness::trackIdForLocation(path, mountedDrives());
+            song.title = title;
+            song.artist = QStringLiteral("ElevenLabs");
+            song.path = path;
+            song.reason = tr("Newly generated · added to library · tempo/key pending analysis");
+            upcoming.append(song);
+        }
+        QStringList before, after;
+        for (const auto& song : m_generatedSuggestions) before.append(song.path);
+        for (const auto& song : upcoming) after.append(song.path);
+        m_generatedSuggestions = upcoming;
+        if (before != after) {
+            mergeSuggestions();
+            syncDrives();
         }
     });
 }

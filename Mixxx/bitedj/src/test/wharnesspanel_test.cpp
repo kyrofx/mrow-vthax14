@@ -3,6 +3,8 @@
 #include <gtest/gtest.h>
 #include <QCoreApplication>
 #include <QDialog>
+#include <QCheckBox>
+#include <QLineEdit>
 #include <QFile>
 #include <QLabel>
 #include <QTest>
@@ -139,6 +141,12 @@ TEST_F(WHarnessPanelTest, GenerateWithBridgeShowsMusicControls) {
             EXPECT_TRUE(dialog->isModal());
             ASSERT_NE(nullptr, dialog->findChild<QSpinBox*>());
             EXPECT_EQ(120, dialog->findChild<QSpinBox*>()->value());
+            ASSERT_NE(nullptr, dialog->findChild<QCheckBox*>(QStringLiteral("InspireCurrentSong")));
+            ASSERT_NE(nullptr, dialog->findChild<QLabel*>(QStringLiteral("MusicCredentialStatus")));
+            ASSERT_NE(nullptr, dialog->findChild<QLabel*>(QStringLiteral("MusicCompositionBrief")));
+            for (auto* input : dialog->findChildren<QLineEdit*>()) {
+                EXPECT_NE(QLineEdit::Password, input->echoMode());
+            }
             dialog->close();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             return;

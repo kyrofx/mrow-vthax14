@@ -272,9 +272,9 @@ GPIO buttons and a real cloud endpoint still require device tests.
 
 ## Generate original songs with ElevenLabs
 
-Open **Assist → Generate song**, enter an ElevenLabs API key, choose a duration
+Open **Assist → Generate song**, check that the key status says configured, and choose a duration
 (3–600 seconds), direction and whether to require instrumental audio, then press
-**Generate & download**. At least one played song must have a Good/Mid/Bad rating.
+**Generate & download**. Rate at least one played song, or enable **Use current song as inspiration** after a song has played. The toggle adds the current session’s latest song genre, performance tempo and key to the prompt; it does not upload audio or send artist/title names.
 The optional developer page provides the same controls under **Generate original
 music**. No Google Cloud Gemini key is required for this feature.
 
@@ -285,13 +285,29 @@ an unplayed suggestion contributes nothing. Titles, artists, paths and audio are
 not sent. This is a musical preference summary, not a claim to understand why the
 crowd reacted. Direction steers a new original composition.
 
+When Gemini is configured, generation automatically uses the selected **setlist
+model** for one composition-brief call before ElevenLabs. It receives a captured
+snapshot of the recent sequence (up to 16 preceding plays and their latest ratings),
+the current tempo/key and crowd response, the longer-term feedback summary, and
+selected direction, duration and instrumental preference. Enabling inspiration
+adds the current song’s available musical metadata. Paths, internal IDs, audio,
+artist names and song titles are excluded.
+
+Gemini proposes tempo, style, arrangement, instrumentation and an intro/outro.
+Its instructions explicitly distinguish known metadata from creative choices and
+forbid claims that it heard the songs. The popup shows **What we’re generating**;
+job history retains the short description and reasoning. Briefing and composition
+run in the background, including with the popup closed. Polling does not call the
+model. The job stores its context, final prompt, brief source and fallback notice.
+If Gemini is absent, fails, times out or returns an invalid brief, the existing
+direct feedback prompt goes to ElevenLabs instead. No automatic model or paid
+music retries occur. This adds one model request when Gemini is configured.
+
 The worker calls [ElevenLabs Music compose](https://elevenlabs.io/docs/api-reference/music/compose)
 with `music_v1` and MP3 output. Each button press requests one paid generation.
 The active key stays in process memory, independently of Google Cloud Gemini settings.
 A provisioned `elevenlabs_api_key` loads from the private config at startup;
-otherwise it must be reentered after restart. Disconnect removes it for future
-jobs in this run; provisioned keys reload after restart, and a generation already
-started continues. Settings do not verify credentials until generation.
+the popup has no key-entry field. Provision or replace keys during installation, then restart. A configured status means a key was loaded; provider authentication is only checked when making a request.
 
 Generation runs in the background while plays and ratings remain available.
 Only one generation may run at a time. Closing/reopening the panel or polling
@@ -305,19 +321,35 @@ machine running the harness (not the browser's device). **Open downloads** opens
 that folder in the native interface. Files appear as complete only after the
 bounded download finishes; empty or non-MP3 responses are rejected. Job history
 and saved paths persist through restarts. Interrupted jobs are marked failed.
-Import the MP3 into Mixxx and analyze it to obtain BPM/key before it enters the
-existing library recommendation flow. Generation never invents measured features,
-loads a deck, or starts playback.
+While BiteDJ is running, its bridge imports completed files into the library within
+its two-second polling cycle, sets artist **ElevenLabs** and title **Crowd Mix <short job ID>**,
+and places them first in Assist as **EL: Crowd Mix <short job ID>**. This works with
+the generation dialog closed and recovers unfinished imports after restart.
+Playing or skipping removes the generated priority entry persistently; the library
+file remains. BPM/key are unknown until analyzed; the priority entry does not claim
+transition compatibility. Generation never loads a deck or starts playback.
+
+Assist shows up to **12** entries. Generated entries have priority; remaining slots
+contain the model/local recommendations or the current rolling setlist. Local ranking
+excludes played/skipped tracks for the current set and unavailable drives. By default,
+it allows half/double-time matching and rejects transitions over 12 BPM apart. Its
+weights are tempo 26%, crowd feedback 15%, transition history 13%, harmonic fit 9%,
+energy 9%, timbre 6%, artist variety 6%, genre 5%, intro/outro 4%, familiarity 4%,
+and vocal overlap 3%. Missing features contribute a neutral value, not an estimate.
+Ratings are smoothed and older feedback decays. A configured model can reorder
+eligible candidates; failures fall back to local scoring. Each row displays the model
+reason or local scoring reasons. Fewer than 12 appear when too few eligible tracks exist.
 
 The private-worker and localhost developer HTTP commands are:
 
 - `POST /api/agent/music/settings`: `{api_key}` or `{disconnect: true}`; empty
   object reads configuration without returning the key.
 - `POST /api/agent/music/generate`: `{session, duration_seconds, direction,
-  instrumental}`; direction is `follow crowd`, `build`, `hold`, or `ease down`.
+  instrumental, inspire_current}`; direction is `follow crowd`, `build`, `hold`, or `ease down`.
   Returns a job ID immediately.
 - `POST /api/agent/music/view`: returns configuration and the latest 20 jobs with
-  `generating`, `complete`, or `failed` state, plus local paths/errors.
+  `generating`, `complete`, or `failed` state, plus local paths/errors and the persistent `upcoming` generation queue.
+- `POST /api/agent/music/consume`: `{path}` removes a completed song from that priority queue without deleting its file.
 
 Tests mock the provider: `python3 -m unittest discover -s harness/tests -v`.
 Live API billing/audio quality and native touchscreen interaction require a

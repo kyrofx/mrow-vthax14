@@ -424,6 +424,8 @@ def dispatch(harness, path, data):
         return harness.music.settings(data)
     if path == '/api/agent/music/view':
         return harness.music.view()
+    if path == '/api/agent/music/consume':
+        return harness.music.consume(data)
     if path == '/api/agent/music/generate':
         return harness.music.start(session, data)
     if path == '/api/agent/settings':

@@ -133,7 +133,7 @@ WHarnessPanel::WHarnessPanel(QWidget* parent)
         m_rateButtons.append(pButton);
     }
 
-    auto* pHeader = new QLabel(tr("Up next"), this);
+    auto* pHeader = new QLabel(tr("Up next · up to 12"), this);
     pHeader->setObjectName("SettingsHeader");
     m_pLayout->addWidget(pHeader, 2, 0);
     m_pLayout->addWidget(addButton(tr("Setlist"), kRefreshButtonObjectName,
@@ -254,14 +254,18 @@ void WHarnessPanel::rebuildSuggestions() {
         if (!suggestion.reason.isEmpty()) {
             details.append(suggestion.reason);
         }
-        const QString title = suggestion.artist.isEmpty()
+        const QString title = suggestion.artist == QStringLiteral("ElevenLabs")
+                ? QStringLiteral("EL: ") + suggestion.title
+                : suggestion.artist.isEmpty()
                 ? suggestion.title
                 : suggestion.title + QStringLiteral(" - ") + suggestion.artist;
         auto* pLabel = new QLabel(
                 title + QLatin1Char('\n') + details.join(QStringLiteral("  ·  ")), this);
         pLabel->setObjectName(kSuggestionObjectName);
         pLabel->setTextFormat(Qt::PlainText);
-        pLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        pLabel->setWordWrap(true);
+        pLabel->setMinimumHeight(72);
+        pLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Minimum);
         m_pLayout->addWidget(pLabel, row, 0);
         m_rowWidgets.append(pLabel);
 
@@ -296,15 +300,10 @@ void WHarnessPanel::showAgentSettings() {
     dialog->setWindowTitle(tr("Agent models · Google Cloud Gemini"));
     dialog->resize(640, 420);
     auto* layout = new QVBoxLayout(dialog);
-    auto* note = new QLabel(tr("A provisioned key loads automatically; otherwise enter it for this run. "
-                              "Runtime changes stay in memory. Song metadata and crowd ratings are sent "
-                              "to Google Cloud Gemini as advice updates; audio and paths stay local."), dialog);
+    auto* note = new QLabel(tr("Keys load from the installed configuration. Song metadata and ratings are sent to the configured model; audio stays local."), dialog);
     note->setWordWrap(true);
     layout->addWidget(note);
     auto* form = new QFormLayout;
-    auto* key = new QLineEdit(dialog);
-    key->setEchoMode(QLineEdit::Password);
-    key->setPlaceholderText(tr("Vertex AI express-mode API key"));
     auto* quick = new QComboBox(dialog);
     auto* planner = new QComboBox(dialog);
     quick->setEditable(true);
@@ -313,7 +312,6 @@ void WHarnessPanel::showAgentSettings() {
     planner->setInsertPolicy(QComboBox::NoInsert);
     quick->setEditText(QStringLiteral("gemini-2.5-flash"));
     planner->setEditText(QStringLiteral("gemini-2.5-flash"));
-    form->addRow(tr("API key"), key);
     form->addRow(tr("Next-song model"), quick);
     form->addRow(tr("Setlist model"), planner);
     layout->addLayout(form);
@@ -324,16 +322,15 @@ void WHarnessPanel::showAgentSettings() {
     auto* buttons = new QHBoxLayout;
     auto* catalog = new QPushButton(tr("Load models"), dialog);
     auto* save = new QPushButton(tr("Apply"), dialog);
-    auto* offline = new QPushButton(tr("Disconnect"), dialog);
     auto* close = new QPushButton(tr("Close"), dialog);
-    for (auto* button : {catalog, save, offline, close}) {
+    for (auto* button : {catalog, save, close}) {
         button->setMinimumHeight(44);
         buttons->addWidget(button);
     }
     layout->addLayout(buttons);
     connect(close, &QPushButton::clicked, dialog, &QDialog::close);
     bridge->agentRequest(QStringLiteral("/api/agent/settings"), {}, dialog,
-            [quick, planner, key, status](const QJsonObject& reply) {
+            [quick, planner, status](const QJsonObject& reply) {
                 if (reply.contains(QStringLiteral("error"))) {
                     status->setText(reply.value(QStringLiteral("error")).toString());
                     return;
@@ -341,12 +338,13 @@ void WHarnessPanel::showAgentSettings() {
                 if (reply.value(QStringLiteral("connected")).toBool()) {
                     quick->setEditText(reply.value(QStringLiteral("next_model")).toString());
                     planner->setEditText(reply.value(QStringLiteral("plan_model")).toString());
-                    key->setPlaceholderText(QObject::tr("Leave blank to keep the current runtime key"));
                     status->setText(reply.value(QStringLiteral("provisioned")).toBool()
-                                    ? QObject::tr("Provisioned at install. Runtime changes reset on restart. Google Cloud Gemini bills model use.")
-                                    : QObject::tr("Configured for this run. Google Cloud Gemini bills model use."));
+                                    ? QObject::tr("API key configured at install. Model changes reset on restart.")
+                                    : QObject::tr("API key configured for this run."));
                 } else if (!reply.value(QStringLiteral("provision_error")).toString().isEmpty()) {
                     status->setText(reply.value(QStringLiteral("provision_error")).toString());
+                } else {
+                    status->setText(tr("API key not configured. Provision it during installation and restart."));
                 }
             });
     connect(catalog, &QPushButton::clicked, dialog, [=] {
@@ -377,16 +375,12 @@ void WHarnessPanel::showAgentSettings() {
         if (disconnect) {
             body.insert(QStringLiteral("disconnect"), true);
         } else {
-            body = {{QStringLiteral("api_key"), key->text()},
-                    {QStringLiteral("next_model"), quick->currentText()},
+            body = {{QStringLiteral("next_model"), quick->currentText()},
                     {QStringLiteral("plan_model"), planner->currentText()}};
         }
         save->setEnabled(false);
-        offline->setEnabled(false);
-        key->clear();
         bridge->agentRequest(QStringLiteral("/api/agent/settings"), body, dialog, [=](const QJsonObject& reply) {
             save->setEnabled(true);
-            offline->setEnabled(true);
             if (reply.contains(QStringLiteral("error"))) {
                 status->setText(reply.value(QStringLiteral("error")).toString());
                 return;
@@ -397,7 +391,6 @@ void WHarnessPanel::showAgentSettings() {
         });
     };
     connect(save, &QPushButton::clicked, dialog, [apply] { apply(false); });
-    connect(offline, &QPushButton::clicked, dialog, [apply] { apply(true); });
     dialog->open();
 }
 
@@ -651,13 +644,10 @@ void WHarnessPanel::showMusicGeneration() {
     }
     auto* note = new QLabel(tr("Create original music from Good / Mid / Bad ratings of played songs across sets. "
                               "Each generation uses your ElevenLabs balance and saves an MP3 automatically. "
-                              "Add the saved song to Mixxx and analyze it before using it in recommendations."), dialog);
+                              "Finished songs enter the library and appear first in Assist."), dialog);
     note->setWordWrap(true);
     layout->addWidget(note);
     auto* form = new QFormLayout;
-    auto* key = new QLineEdit(dialog);
-    key->setEchoMode(QLineEdit::Password);
-    key->setPlaceholderText(tr("ElevenLabs key; blank keeps the provisioned or runtime key"));
     auto* duration = new QSpinBox(dialog);
     duration->setRange(3, 600);
     duration->setValue(120);
@@ -669,24 +659,33 @@ void WHarnessPanel::showMusicGeneration() {
     direction->addItem(tr("Ease down"), QStringLiteral("ease down"));
     auto* instrumental = new QCheckBox(tr("Instrumental"), dialog);
     instrumental->setChecked(true);
-    form->addRow(tr("API key"), key);
     form->addRow(tr("Length"), duration);
     form->addRow(tr("Direction"), direction);
     form->addRow(instrumental);
+    auto* inspire = new QCheckBox(tr("Use current song as inspiration (genre, tempo and key)"), dialog);
+    inspire->setObjectName(QStringLiteral("InspireCurrentSong"));
+    form->addRow(inspire);
     layout->addLayout(form);
+    auto* credential = new QLabel(tr("ElevenLabs key: checking…"), dialog);
+    credential->setObjectName(QStringLiteral("MusicCredentialStatus"));
+    layout->addWidget(credential);
     auto* status = new QLabel(tr("Checking music settings…"), dialog);
     status->setTextFormat(Qt::PlainText);
     status->setWordWrap(true);
     layout->addWidget(status);
+    auto* brief = new QLabel(tr("What we’re generating: choose your settings and generate a song."), dialog);
+    brief->setObjectName(QStringLiteral("MusicCompositionBrief"));
+    brief->setWordWrap(true);
+    brief->setTextFormat(Qt::PlainText);
+    layout->addWidget(brief);
     auto* history = new QListWidget(dialog);
     history->setWordWrap(true);
     layout->addWidget(history);
     auto* buttons = new QHBoxLayout;
     auto* generate = new QPushButton(tr("Generate & download"), dialog);
-    auto* disconnect = new QPushButton(tr("Disconnect"), dialog);
     auto* folder = new QPushButton(tr("Open downloads"), dialog);
     auto* close = new QPushButton(tr("Close"), dialog);
-    for (auto* button : {generate, disconnect, folder, close}) {
+    for (auto* button : {generate, folder, close}) {
         button->setMinimumHeight(44);
         buttons->addWidget(button);
     }
@@ -707,8 +706,23 @@ void WHarnessPanel::showMusicGeneration() {
                 timer->start();
                 return;
             }
+            credential->setText(reply.value(QStringLiteral("connected")).toBool()
+                            ? tr("ElevenLabs key: configured") : tr("ElevenLabs key: not configured"));
             const QString directory = reply.value(QStringLiteral("directory")).toString();
             folder->setProperty("directory", directory);
+            const auto jobs = reply.value(QStringLiteral("jobs")).toArray();
+            if (!jobs.isEmpty()) {
+                const auto latest = jobs.first().toObject();
+                const bool briefing = latest.value(QStringLiteral("state")).toString() == QStringLiteral("generating") &&
+                        latest.value(QStringLiteral("phase")).toString() == QStringLiteral("briefing");
+                brief->setText(briefing ? tr("What we’re generating: Gemini is preparing the composition brief…")
+                                : tr("What we’re generating (%1): %2\n%3")
+                                          .arg(latest.value(QStringLiteral("brief_source")).toString() == QStringLiteral("gemini")
+                                                          ? tr("Gemini") : tr("direct feedback"))
+                                          .arg(latest.value(QStringLiteral("summary")).toString())
+                                          .arg(latest.value(QStringLiteral("brief_error")).toString()));
+                brief->setToolTip(latest.value(QStringLiteral("reasoning")).toString());
+            }
             history->clear();
             bool pending = false;
             bool downloaded = false;
@@ -720,9 +734,11 @@ void WHarnessPanel::showMusicGeneration() {
                 history->addItem(job.value(QStringLiteral("created")).toString() + QStringLiteral(" · ") + state +
                         QStringLiteral(" · ") + (state == QStringLiteral("complete")
                                         ? job.value(QStringLiteral("path")).toString()
-                                        : job.value(QStringLiteral("error")).toString()));
+                                        : job.value(QStringLiteral("error")).toString()) +
+                        QStringLiteral("\n") + job.value(QStringLiteral("summary")).toString() +
+                        QStringLiteral("\n") + job.value(QStringLiteral("reasoning")).toString());
             }
-            generate->setEnabled(!pending);
+            generate->setEnabled(!pending && reply.value(QStringLiteral("connected")).toBool());
             folder->setEnabled(downloaded);
             if (!status->property("keepError").toBool()) {
                 status->setText(!reply.value(QStringLiteral("provision_error")).toString().isEmpty()
@@ -732,7 +748,7 @@ void WHarnessPanel::showMusicGeneration() {
                                 ? (reply.value(QStringLiteral("provisioned")).toBool()
                                                 ? tr("Key configured. Provisioned keys reload on restart. Downloads: %1")
                                                 : tr("Key configured for this run. Downloads: %1")).arg(directory)
-                                : tr("Enter an ElevenLabs key, or restart to reload provisioned keys."));
+                                : tr("ElevenLabs key not configured. Provision it during installation and restart."));
             }
             timer->start();
         });
@@ -741,44 +757,19 @@ void WHarnessPanel::showMusicGeneration() {
     connect(generate, &QPushButton::clicked, dialog, [=] {
         timer->stop();
         generate->setEnabled(false);
-        disconnect->setEnabled(false);
         status->setProperty("keepError", false);
-        const QJsonObject settings{{QStringLiteral("api_key"), key->text()}};
         const QJsonObject request{{QStringLiteral("duration_seconds"), duration->value()},
                 {QStringLiteral("direction"), direction->currentData().toString()},
-                {QStringLiteral("instrumental"), instrumental->isChecked()}};
-        key->clear();
+                {QStringLiteral("instrumental"), instrumental->isChecked()},
+                {QStringLiteral("inspire_current"), inspire->isChecked()}};
         status->setText(tr("Starting generation…"));
-        bridge->agentRequest(QStringLiteral("/api/agent/music/settings"), settings, dialog, [=](const QJsonObject& reply) {
-            if (reply.contains(QStringLiteral("error"))) {
+        bridge->agentRequest(QStringLiteral("/api/agent/music/generate"), request, dialog, [=](const QJsonObject& result) {
+            if (result.contains(QStringLiteral("error"))) {
                 status->setProperty("keepError", true);
-                status->setText(reply.value(QStringLiteral("error")).toString());
-                generate->setEnabled(true);
-                disconnect->setEnabled(true);
-                timer->start();
-                return;
+                status->setText(result.value(QStringLiteral("error")).toString());
             }
-            bridge->agentRequest(QStringLiteral("/api/agent/music/generate"), request, dialog, [=](const QJsonObject& result) {
-                disconnect->setEnabled(true);
-                if (result.contains(QStringLiteral("error"))) {
-                    status->setProperty("keepError", true);
-                    status->setText(result.value(QStringLiteral("error")).toString());
-                }
-                refresh();
-            });
+            refresh();
         });
-    });
-    connect(disconnect, &QPushButton::clicked, dialog, [=] {
-        key->clear();
-        status->setProperty("keepError", false);
-        bridge->agentRequest(QStringLiteral("/api/agent/music/settings"),
-                {{QStringLiteral("disconnect"), true}}, dialog, [=](const QJsonObject& reply) {
-                    if (reply.contains(QStringLiteral("error"))) {
-                        status->setProperty("keepError", true);
-                        status->setText(reply.value(QStringLiteral("error")).toString());
-                    }
-                    refresh();
-                });
     });
     refresh();
     dialog->open();

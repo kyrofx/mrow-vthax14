@@ -6,7 +6,8 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from types import SimpleNamespace
 import urllib.error
 
 import test_harness  # noqa: F401
@@ -177,6 +178,148 @@ class MusicTests(unittest.TestCase):
         self.assertFalse(self.h.music.settings({'disconnect': True})['connected'])
         with self.assertRaisesRegex(ValueError, 'Enter an ElevenLabs'):
             self.h.music.settings({'api_key': ''})
+
+    def test_inspiration_uses_current_session_traits_without_names(self):
+        self.h.record_play('liked', 'current', bpm=130)
+        prompt = self.h.music.prompt('hold', 'current', True)
+        self.assertIn('130', prompt)
+        self.assertIn('house', prompt)
+        self.assertNotIn('Private song title', prompt)
+        self.assertNotIn('Private artist', prompt)
+        with self.assertRaisesRegex(ValueError, 'Play a song'):
+            self.h.music.prompt('hold', 'different', True)
+        with self.assertRaises(ValueError):
+            self.h.music.start('current', {'inspire_current': 'yes'})
+
+    def test_completed_queue_persists_and_consumes_idempotently(self):
+        self.feedback()
+        job, args = self.queued()
+        with patch('music.urllib.request.urlopen', return_value=Audio()):
+            self.h.music.generate(*args)
+        upcoming = self.h.music.view()['upcoming']
+        self.assertEqual(len(upcoming), 1)
+        self.assertTrue(upcoming[0]['title'].startswith('Crowd Mix '))
+        restarted = Harness(self.h.database)
+        self.assertEqual(len(restarted.music.view()['upcoming']), 1)
+        for _ in range(2):
+            dispatch(restarted, '/api/agent/music/consume', {'path': upcoming[0]['path']})
+        self.assertEqual(restarted.music.view()['upcoming'], [])
+        self.assertEqual(restarted.music.view()['jobs'][0]['state'], 'complete')
+
+    def brief_client(self, response=None):
+        client = Mock()
+        client.config = SimpleNamespace(provider='gemini')
+        client.complete.return_value = json.dumps(response or {
+            'summary': 'A spacious house instrumental with a gradual build.',
+            'target_bpm': 128, 'style': 'House, proposed from liked genre feedback',
+            'arrangement': 'Intro, gradual build, central section, outro',
+            'instrumentation': 'Creative choices: drum machine and warm synth chords',
+            'intro_outro': 'Sparse percussion intro and outro for transitions',
+            'reasoning': 'House was rated good; instrumentation is a creative choice, not heard evidence.'})
+        self.h.agent.clients = {'plan': client}
+        return client
+
+    def test_gemini_brief_is_sent_once_and_persisted_before_download(self):
+        self.feedback()
+        self.h.record_play('liked', 'new-set', bpm=131)
+        client = self.brief_client()
+        job, args = self.queued(inspire_current=True, duration_seconds=45)
+        self.assertEqual(self.h.music.view()['jobs'][0]['phase'], 'briefing')
+        def download(request, **kwargs):
+            saved = self.h.music.view()['jobs'][0]
+            self.assertEqual(saved['brief_source'], 'gemini')
+            self.assertEqual(saved['phase'], 'composing')
+            self.assertEqual(json.loads(request.data)['prompt'], saved['prompt'])
+            self.assertIn('Target tempo: 128 BPM', saved['prompt'])
+            self.assertIn('Creative choices', saved['prompt'])
+            self.assertEqual(json.loads(request.data)['music_length_ms'], 45000)
+            return Audio()
+        with patch('music.urllib.request.urlopen', side_effect=download) as endpoint:
+            self.h.music.generate(*args)
+            endpoint.assert_called_once()
+        client.complete.assert_called_once()
+        context = json.loads(client.complete.call_args.args[0])
+        self.assertEqual(context['current_song_inspiration']['bpm'], 131)
+        self.assertEqual(context['duration_seconds'], 45)
+        self.assertTrue(context['instrumental'])
+        for secret in ('/private/', 'secret-eleven-key', 'Private artist', 'Private song title'):
+            self.assertNotIn(secret, json.dumps(context))
+        self.assertIn('NOT audio', client.complete.call_args.args[1])
+        persisted = Harness(self.h.database).music.view()['jobs'][0]
+        self.assertEqual(persisted['brief_source'], 'gemini')
+        self.assertIn('creative choice', persisted['reasoning'])
+        for _ in range(3):
+            self.h.music.view()
+        client.complete.assert_called_once()
+
+    def test_bad_gemini_briefs_fall_back_without_retry_or_secret_leak(self):
+        self.feedback()
+        for response in ('not json', '{}', '[]', json.dumps({'target_bpm': True})):
+            client = self.brief_client()
+            client.complete.return_value = response
+            _, args = self.queued()
+            original = self.h.music.view()['jobs'][0]['prompt']
+            with patch('music.urllib.request.urlopen', return_value=Audio()) as endpoint:
+                self.h.music.generate(*args)
+                self.assertEqual(json.loads(endpoint.call_args.args[0].data)['prompt'], original)
+                endpoint.assert_called_once()
+            saved = self.h.music.view()['jobs'][0]
+            self.assertEqual(saved['state'], 'complete')
+            self.assertEqual(saved['brief_source'], 'direct')
+            self.assertIn('using the direct', saved['brief_error'])
+            client.complete.assert_called_once()
+        client = self.brief_client()
+        client.complete.side_effect = TimeoutError('secret-gemini-key')
+        _, args = self.queued()
+        with patch('music.urllib.request.urlopen', return_value=Audio()):
+            self.h.music.generate(*args)
+        self.assertNotIn('secret-gemini-key', json.dumps(self.h.music.view()))
+
+    def test_brief_context_keeps_sequence_ratings_and_toggle_boundary(self):
+        self.feedback()
+        first = self.h.record_play('liked', 'new-set', bpm=127)
+        self.h.rate('liked', 'new-set', 'mid', first['play_id'])
+        self.h.record_play('skipped', 'new-set', bpm=92)
+        client = self.brief_client()
+        _, args = self.queued(inspire_current=False)
+        # Subsequent activity must not mutate the job's captured context.
+        self.h.rate('liked', 'new-set', 'bad', first['play_id'])
+        with patch('music.urllib.request.urlopen', return_value=Audio()):
+            self.h.music.generate(*args)
+        context = json.loads(client.complete.call_args.args[0])
+        self.assertIsNone(context['current_song_inspiration'])
+        self.assertEqual(context['current_transition']['bpm'], 92)
+        self.assertEqual(context['recent_sequence'][0]['crowd'], 'mid')
+        self.assertIn('"good": 1', context['longer_term_preferences'])
+
+    def test_briefing_is_background_and_rejects_duplicate_generation(self):
+        self.feedback()
+        client = self.brief_client()
+        response = client.complete.return_value
+        started, release, done = threading.Event(), threading.Event(), threading.Event()
+        def compose(*args):
+            started.set()
+            release.wait(5)
+            return response
+        client.complete.side_effect = compose
+        original = self.h.music.generate
+        def generate(*args):
+            try:
+                original(*args)
+            finally:
+                done.set()
+        with patch.object(self.h.music, 'generate', side_effect=generate), patch('music.urllib.request.urlopen', return_value=Audio()):
+            try:
+                self.h.music.start('new-set', {})
+                self.assertTrue(started.wait(2))
+                self.assertEqual(self.h.music.view()['jobs'][0]['phase'], 'briefing')
+                self.h.record_play('liked', 'new-set')
+                with self.assertRaisesRegex(ValueError, 'already generating'):
+                    self.h.music.start('new-set', {})
+            finally:
+                release.set()
+                self.assertTrue(done.wait(3))
+        client.complete.assert_called_once()
 
 
 if __name__ == '__main__':
