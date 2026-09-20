@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Touch volume control for the BiteDJ appliance.
+
+waybar shows the volume but its only click action is mute, and there is no
+scroll wheel on a touchscreen -- so the number was readable and unchangeable.
+This is a slider big enough to drag with a finger.
+
+It controls the default PipeWire sink, which is whatever audio is actually
+going to: built-in, HDMI, or a Bluetooth speaker. The DJ controller is
+deliberately NOT in PipeWire (see the WirePlumber rule), so this can never move
+the master output's level out from under a set -- that stays on the controller's
+own knobs.
+"""
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
+
+try:
+    gi.require_version("GtkLayerShell", "0.1")
+    from gi.repository import GtkLayerShell  # noqa: E402
+except (ValueError, ImportError):
+    GtkLayerShell = None
+
+import re  # noqa: E402
+import subprocess  # noqa: E402
+
+SINK = "@DEFAULT_AUDIO_SINK@"
+STEP = 5
+
+
+def wpctl(*args):
+    try:
+        p = subprocess.run(["wpctl", *args], capture_output=True, text=True,
+                           timeout=10, check=False)
+        return p.returncode == 0, p.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return False, ""
+
+
+def get_state():
+    """(percent, muted, sink name)."""
+    ok, out = wpctl("get-volume", SINK)
+    pct, muted = 0, False
+    if ok:
+        m = re.search(r"([0-9.]+)", out)
+        if m:
+            pct = int(round(float(m.group(1)) * 100))
+        muted = "MUTED" in out.upper()
+
+    name = "default output"
+    ok, status = wpctl("status")
+    if ok:
+        for line in status.splitlines():
+            # The default sink is the one flagged with an asterisk.
+            if "*" in line and re.search(r"\d+\.", line):
+                cleaned = re.sub(r"^[^A-Za-z0-9]*\d+\.\s*", "", line.strip(" │├─*"))
+                cleaned = re.sub(r"\s*\[.*\]\s*$", "", cleaned).strip()
+                if cleaned:
+                    name = cleaned
+                    break
+    return pct, muted, name
+
+
+class Volume(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Volume")
+        self.updating = False
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        for setter in ("set_margin_top", "set_margin_bottom",
+                       "set_margin_start", "set_margin_end"):
+            getattr(root, setter)(14)
+        self.add(root)
+
+        self.title = Gtk.Label(xalign=0)
+        self.title.set_ellipsize(Pango.EllipsizeMode.END)
+        root.pack_start(self.title, False, False, 0)
+
+        # Marks give a finger something to aim at and make the scale readable
+        # at a glance from arm's length.
+        self.scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.scale.set_size_request(-1, 90)
+        self.scale.set_draw_value(True)
+        self.scale.set_value_pos(Gtk.PositionType.TOP)
+        for mark in (0, 25, 50, 75, 100):
+            self.scale.add_mark(mark, Gtk.PositionType.BOTTOM, str(mark))
+        self.scale.connect("value-changed", self.on_slide)
+        root.pack_start(self.scale, False, False, 0)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10,
+                          homogeneous=True)
+        buttons.set_size_request(-1, 76)
+        root.pack_start(buttons, False, False, 0)
+
+        for label, cb in (
+            (f"− {STEP}%", lambda _b: self.nudge(-STEP)),
+            (f"+ {STEP}%", lambda _b: self.nudge(STEP)),
+        ):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", cb)
+            buttons.pack_start(b, True, True, 0)
+
+        self.mute_btn = Gtk.Button(label="Mute")
+        self.mute_btn.connect("clicked", self.on_mute)
+        buttons.pack_start(self.mute_btn, True, True, 0)
+
+        close = Gtk.Button(label="Close")
+        close.connect("clicked", lambda _b: Gtk.main_quit())
+        buttons.pack_start(close, True, True, 0)
+
+        self.connect("destroy", Gtk.main_quit)
+        self.refresh()
+        # Something else may change the volume (waybar, the speaker's own
+        # buttons over AVRCP), so do not let the slider drift out of date.
+        GLib.timeout_add_seconds(2, self.refresh)
+
+    def refresh(self):
+        pct, muted, name = get_state()
+        self.updating = True
+        self.scale.set_value(pct)
+        self.updating = False
+        self.title.set_markup(
+            f"<big><b>{GLib.markup_escape_text(name)}</b></big>"
+            + ("  <big>(muted)</big>" if muted else "")
+        )
+        self.mute_btn.set_label("Unmute" if muted else "Mute")
+        return True
+
+    def on_slide(self, scale):
+        if self.updating:
+            return
+        wpctl("set-volume", SINK, f"{int(scale.get_value())}%")
+
+    def nudge(self, delta):
+        pct = max(0, min(100, int(self.scale.get_value()) + delta))
+        self.scale.set_value(pct)
+
+    def on_mute(self, _button):
+        wpctl("set-mute", SINK, "toggle")
+        self.refresh()
+
+
+def main():
+    GLib.set_prgname("bitedj-volume")
+    GLib.set_application_name("Volume")
+    win = Volume()
+    if GtkLayerShell is not None:
+        GtkLayerShell.init_for_window(win)
+        GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_namespace(win, "bitedj-volume")
+        # Anchored bottom so it does not cover BiteDJ's tab strip, and only as
+        # tall as it needs to be.
+        for edge in (GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT,
+                     GtkLayerShell.Edge.BOTTOM):
+            GtkLayerShell.set_anchor(win, edge, True)
+            GtkLayerShell.set_margin(win, edge, 16)
+        GtkLayerShell.set_exclusive_zone(win, -1)
+        GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.NONE)
+    else:
+        win.set_default_size(760, 260)
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

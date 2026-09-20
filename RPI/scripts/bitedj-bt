@@ -13,6 +13,7 @@
 #   bitedj-bt disconnect <MAC>
 #   bitedj-bt status
 #   bitedj-bt forget <MAC>
+#   bitedj-bt forget-all        # clear the saved-device cache entirely
 
 set -uo pipefail
 
@@ -79,10 +80,15 @@ case "${1:-status}" in
         MAC=${2:?usage: $(basename "$0") pair <MAC>}
         ensure_powered
         say "Pairing $MAC"
+        # Deliberately NOT trusted. A trusted-but-unpaired entry is the state
+        # this box kept ending up in after a reboot, and bluez then refuses the
+        # reconnect with br-connection-refused while still listing the device.
+        # Pairing fresh always works, so that is what we do.
         bluetoothctl pair "$MAC"
-        # trust = reconnect automatically next time without re-pairing.
-        bluetoothctl trust "$MAC"
-        bluetoothctl connect "$MAC"
+        if ! bluetoothctl connect "$MAC"; then
+            say "Connect failed -- clearing the stale bond so the next attempt is clean"
+            bluetoothctl remove "$MAC" >/dev/null 2>&1 || true
+        fi
         sleep 3
         say "Making it the default sink"
         # WirePlumber creates the sink a moment after the link comes up.
@@ -94,7 +100,25 @@ case "${1:-status}" in
         "$0" status
         ;;
 
-    connect)    bluetoothctl connect "${2:?need MAC}" ;;
+    connect)
+        MAC=${2:?need MAC}
+        ensure_powered
+        if ! bluetoothctl connect "$MAC"; then
+            say "Connect failed -- removing the stale entry; scan and pair again"
+            bluetoothctl remove "$MAC" >/dev/null 2>&1 || true
+            exit 1
+        fi
+        ;;
+    forget-all)
+        # "Saved device cache" -- bluez keeps a bond per device under
+        # /var/lib/bluetooth. Clearing it means every connection is a fresh
+        # pairing, which is the only path that has proved reliable here.
+        ensure_powered
+        bluetoothctl devices | while read -r _ mac _; do
+            [ -n "$mac" ] && bluetoothctl remove "$mac" >/dev/null 2>&1
+        done
+        say "All saved Bluetooth devices removed"
+        ;;
     disconnect) bluetoothctl disconnect "${2:?need MAC}" ;;
     forget)     bluetoothctl remove "${2:?need MAC}" ;;
 

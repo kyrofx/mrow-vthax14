@@ -92,6 +92,8 @@ daemons. See [`bitedj_docs/desktop-access.md`](bitedj_docs/desktop-access.md).
 | `bitedj-bt` | manually | Pairs a Bluetooth speaker from a shell; clears the rfkill block that otherwise makes every command fail with `NotReady` |
 | `bitedj-bt-ui` | gesture / button | Touch picker for Bluetooth speakers. Draws over fullscreen BiteDJ via layer-shell, so a speaker can be connected mid-set. Confirms before connecting |
 | `bitedj-cursor-park` | from sway | Parks the cursor in a corner after each touch, so a tap does not leave an invisible pointer hovering over the UI |
+| `bitedj-volume` | waybar / `Super+V` | Touch volume slider for the default sink. waybar's own module can only mute, and a touchscreen has no scroll wheel |
+| `bitedj-usb-recover` | boot service | Power-cycles USB ports that came up empty, so the controller is found without replugging it |
 
 ## Configuration
 
@@ -102,6 +104,8 @@ daemons. See [`bitedj_docs/desktop-access.md`](bitedj_docs/desktop-access.md).
 | `etc/systemd/system/getty@tty1.service.d/autologin.conf` | same | Console autologin (written by `raspi-config`) |
 | `etc/polkit-1/rules.d/50-bitedj.rules` | same | udisks2 + power-off without an unanswerable prompt |
 | `etc/systemd/system/bluetooth-unblock.service` | same | Clears the persisted rfkill soft-block on Bluetooth at boot |
+| `etc/systemd/system/bitedj-usb-recover.service` | same | Power-cycles dead USB ports at boot so the controller enumerates |
+| `home/.config/wireplumber/.../51-bitedj-bluetooth-no-suspend.conf` | `~/.config/wireplumber/wireplumber.conf.d/` | Stops WirePlumber idle-suspending a Bluetooth sink and dropping the A2DP transport |
 | `etc/sudoers.d/010-bitedj-nopasswd` | **optional** | Convenience only; read the warning in the file |
 | `home/.config/sway/config` | `~/.config/sway/config` | The session: what starts, in what order |
 | `home/.config/waybar/*` | `~/.config/waybar/` | Status bar |

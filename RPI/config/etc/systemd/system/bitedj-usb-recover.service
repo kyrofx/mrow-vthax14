@@ -1,0 +1,22 @@
+[Unit]
+Description=Power-cycle dead USB ports so the DJ controller is found at boot
+Documentation=man:uhubctl(1)
+# The Pi does not drop USB bus power across a warm reboot, so a bus-powered
+# USB audio device can stay in its old configured state and never re-enumerate:
+# lsusb shows nothing and dmesg logs no attach at all. Replugging it by hand is
+# the usual workaround; this does the same thing electrically.
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Let enumeration finish first, or a controller that is coming up normally
+# looks like an empty port and gets cycled for no reason.
+ExecStartPre=/bin/sleep 5
+ExecStart=/home/flx4/.local/bin/bitedj-usb-recover
+User=flx4
+
+[Install]
+WantedBy=multi-user.target

@@ -150,6 +150,50 @@ mouse movement takes the pointer wherever you want it.
 
 ---
 
+## The DJ controller is missing after a reboot
+
+`lsusb` shows no controller at all and `dmesg` logs no attach for it — as though
+it were unplugged. Replugging it by hand brings it back.
+
+**Cause:** the Pi does not drop USB bus power across a warm reboot. A bus-powered
+USB audio device can still be sitting in the configured state it was left in,
+and never re-enumerates.
+
+**Fix:** `bitedj-usb-recover.service` runs at boot and power-cycles, via
+`uhubctl`, any port that has power but no device connected — precisely the
+failure state. Ports with a working device are left alone, so it is a no-op on a
+healthy boot and never disturbs the keyboard or the music drive.
+
+```bash
+~/.local/bin/bitedj-usb-recover     # run it by hand
+sudo uhubctl                        # see per-port state; "ppps" = switchable
+```
+
+If the controller is genuinely unplugged, no amount of cycling will help — the
+script says so rather than looping.
+
+**Then check the card number.** `soundconfig.xml` hardcodes `hw:3,0`, and card
+numbers are assigned in enumeration order. After any change to what is plugged
+in, confirm with `aplay -l` that the controller is still card 3.
+
+---
+
+## The speaker is connected and routed but silent
+
+Everything looks right — `wpctl` shows it connected and default, `pw-top` shows
+the stream linked and running with no errors — and there is no sound.
+
+The giveaway is `bluez5.profile = "off"` in the device props: WirePlumber
+suspended the idle node and released the A2DP transport. Covered in full, with
+the fix and how to measure real signal, in
+[audio.md](audio.md#connected-routed-and-silent).
+
+**When measuring, note that `pw-record --target <sink>` alone records silence** —
+it needs `-P '{ stream.capture.sink=true }'` to attach to the monitor. Without
+that you will "prove" a working path is dead.
+
+---
+
 ## Bluetooth: org.bluez.Error.NotReady
 
 ```

@@ -315,6 +315,52 @@ stream should appear underneath the Bluetooth sink.
 If the speaker drops out, Booth falls back to whatever the default sink becomes
 (usually built-in audio). Master and Headphones are untouched either way.
 
+### Connected, routed, and silent
+
+The failure worth knowing about, because everything looks healthy while it
+happens: `wpctl` shows the speaker connected and the default sink, `pw-top`
+shows the stream linked and running with zero errors — and no sound comes out.
+The only hint anywhere is `bluez5.profile` reading `"off"` in the device props.
+
+**Cause:** WirePlumber's `suspend-node.lua` suspends an idle node after 5s
+(`session.suspend-timeout-seconds`, default 5). For a Bluetooth sink, suspending
+**releases the A2DP transport**. BiteDJ holds its Booth output open from startup
+whether or not a deck is playing, so between sets the node goes idle, the
+transport is dropped, and the resume when playback restarts is not reliable over
+Bluetooth. Anything that creates a fresh stream — `speaker-test`, for instance —
+wakes it and audio returns, which makes the whole thing look intermittent.
+
+**Fix:** `51-bitedj-bluetooth-no-suspend.conf` sets
+`session.suspend-timeout-seconds = 0` for `bluez_output.*`, holding the transport
+for as long as the speaker is connected.
+
+**Measuring whether audio is really flowing.** Do not trust "the stream is
+linked". Record the sink's own monitor and look at the sample values:
+
+```bash
+pw-record --target <sink-id> -P '{ stream.capture.sink=true }' \
+    --channels 2 --rate 48000 --format s16 /tmp/mon.wav
+```
+
+`stream.capture.sink=true` is essential — without it `pw-record --target <sink>`
+creates a capture stream that links to nothing and records perfect silence,
+which reads exactly like a dead audio path. (`audioop` was removed in Python
+3.13, so compute the peak with `array` instead.)
+
+### Saved devices are not kept
+
+`bitedj-bt` and the picker deliberately never mark a device **trusted**, and
+clear the bond when a connect fails.
+
+A trusted-but-unpaired entry is the state this box kept reaching after a reboot:
+bluez still lists the device, `Trusted: yes` / `Paired: no`, and every reconnect
+fails with `br-connection-refused`. Pairing fresh always works. So rather than
+chase auto-reconnect, connecting is always a fresh pairing, and a failed connect
+removes the stale entry so the next attempt is clean.
+
+`bitedj-bt forget-all`, or **Forget all** in the picker, clears the cache
+outright.
+
 ### Do not put Master on Bluetooth
 
 The arrangement above works because Bluetooth only carries Booth. Putting
