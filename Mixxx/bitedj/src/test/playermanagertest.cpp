@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <QTest>
+#include <QJsonArray>
+#include "harness/harnessbridge.h"
+#include "widget/wharnesspanel.h"
+#include "control/controlpushbutton.h"
 
 #include "control/controlindicatortimer.h"
 #include "database/mixxxdb.h"
@@ -258,4 +262,47 @@ TEST_F(PlayerManagerTest, UnReplaceTest) {
     // First track should be reloaded
     ASSERT_NE(nullptr, deck1->getLoadedTrack());
     ASSERT_EQ(testId1, deck1->getLoadedTrack()->getId());
+}
+
+TEST_F(PlayerManagerTest, AssistHardwareLoadUsesHighlightedSongAndReturnsToPlay) {
+    ControlPushButton touch(ConfigKey("[Controls]", "touch_shift"));
+    ControlObject libraryTab(ConfigKey("[Tab]", "library"));
+    ControlObject overviewTab(ConfigKey("[Tab]", "overview"));
+    ControlObject currentTab(ConfigKey("[Tab]", "current"));
+    currentTab.set(4);
+    m_pConfig->setValue(ConfigKey("[Harness]", "external"), false);
+    HarnessBridge bridge(m_pConfig, m_pPlayerManager, nullptr);
+    WHarnessPanel panel;
+    panel.resize(800, 480);
+    panel.show();
+    const QString first = getTestDir().filePath(kTrackLocationTest1);
+    const QString second = getTestDir().filePath(kTrackLocationTest2);
+    bool synced = false;
+    bridge.agentRequest(QStringLiteral("/api/library/sync"),
+            {{"scope", "knob-test"}, {"complete", true}, {"tracks", QJsonArray{
+                QJsonObject{{"id", "knob-a"}, {"title", "A"}, {"path", first}, {"bpm", 120}},
+                QJsonObject{{"id", "knob-b"}, {"title", "B"}, {"path", second}, {"bpm", 120}}}}},
+            &panel, [&](const QJsonObject& reply) { synced = !reply.contains("error"); });
+    ASSERT_TRUE(QTest::qWaitFor([&] { return synced; }, 5000));
+    bridge.refreshSuggestions();
+    ASSERT_TRUE(QTest::qWaitFor([&] { return bridge.suggestions().size() == 2 && !bridge.agentBusy(); }, 5000));
+    ControlObject::set(ConfigKey("[Library]", "MoveVertical"), 1);
+    EXPECT_EQ(QStringLiteral("knob-b"), panel.selectedTrackId());
+    ControlObject::set(ConfigKey("[Channel1]", "LoadSelectedTrack"), 1);
+    auto deck = m_pPlayerManager->getDeck(0);
+    ASSERT_NE(nullptr, deck->getLoadedTrack());
+    EXPECT_EQ(second, deck->getLoadedTrack()->getLocation());
+    EXPECT_EQ(0.0, currentTab.get());
+    EXPECT_EQ(1.0, overviewTab.get());
+    EXPECT_EQ(0.0, ControlObject::get(ConfigKey("[Channel1]", "play")));
+    m_pEngine->process(1024);
+    ASSERT_TRUE(QTest::qWaitFor([&] { return deck->getEngineDeck()->getEngineBuffer()->isTrackLoaded(); }, 5000));
+    // An occupied, playing deck must not be replaced or switch the page.
+    currentTab.set(4);
+    ControlObject::set(ConfigKey("[Channel1]", "play"), 1);
+    panel.moveSelection(-1);
+    EXPECT_FALSE(panel.loadSelectedTrack(QStringLiteral("[Channel1]")));
+    EXPECT_EQ(second, deck->getLoadedTrack()->getLocation());
+    EXPECT_EQ(4.0, currentTab.get());
+    ControlObject::set(ConfigKey("[Channel1]", "play"), 0);
 }

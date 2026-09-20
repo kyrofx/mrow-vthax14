@@ -15,10 +15,12 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QSignalSpy>
+#include <QDialog>
 #include <QLabel>
 #include <QScrollArea>
 #include <QScrollBar>
 #include "widget/wharnesspanel.h"
+#include "library/librarycontrol.h"
 
 #include "control/controlobject.h"
 #include "control/controlpushbutton.h"
@@ -544,4 +546,55 @@ TEST_F(HarnessBridgeTest, NewAdviceIsVisibleWhileScrolledAndUnchangedPollingIsQu
     m_pBridge->refreshSuggestions();
     ASSERT_TRUE(waitFor([&] { return updates.count() == 2; }));
     EXPECT_TRUE(response->text().contains(QStringLiteral("Ease down")));
+}
+
+TEST_F(HarnessBridgeTest, BrowseEncoderSelectsAssistRowsAndPreservesTrackAcrossRefresh) {
+    ASSERT_TRUE(m_harness.listen());
+    QJsonArray tracks;
+    for (int i = 0; i < 12; ++i) {
+        tracks.append(QJsonObject{{"id", QString::number(i)}, {"title", QStringLiteral("Song %1").arg(i)}});
+    }
+    m_harness.replies["/api/agent"].insert("tracks", tracks);
+    startBridge();
+    ControlPushButton touch(ConfigKey("[Controls]", "touch_shift"));
+    LibraryControl libraryControls(nullptr);
+    WHarnessPanel panel;
+    panel.resize(800, 360);
+    panel.show();
+    ASSERT_TRUE(waitFor([&] { return m_pBridge->suggestions().size() == 12 && !m_pBridge->agentBusy(); }));
+    EXPECT_EQ(QStringLiteral("0"), panel.selectedTrackId());
+    ControlObject::set(ConfigKey("[Library]", "MoveVertical"), 8);
+    QCoreApplication::processEvents();
+    EXPECT_EQ(QStringLiteral("8"), panel.selectedTrackId());
+    auto* scroll = panel.findChild<QScrollArea*>();
+    ASSERT_TRUE(waitFor([&] { return scroll->verticalScrollBar()->value() > 0; }));
+    QLabel* selected = nullptr;
+    for (auto* row : panel.findChildren<QLabel*>(QStringLiteral("HarnessSuggestion"))) {
+        if (row->property("selected").toBool()) selected = row;
+    }
+    ASSERT_NE(nullptr, selected);
+    EXPECT_TRUE(scroll->viewport()->rect().contains(selected->mapTo(scroll->viewport(), selected->rect().center())));
+    // Identical relative ticks must both advance, including wraparound.
+    ControlObject::set(ConfigKey("[Library]", "MoveVertical"), 1);
+    ControlObject::set(ConfigKey("[Library]", "MoveVertical"), 1);
+    EXPECT_EQ(QStringLiteral("10"), panel.selectedTrackId());
+    ControlObject::set(ConfigKey("[Library]", "MoveVertical"), 2);
+    EXPECT_EQ(QStringLiteral("0"), panel.selectedTrackId());
+    ControlObject::set(ConfigKey("[Library]", "MoveVertical"), -1);
+    EXPECT_EQ(QStringLiteral("11"), panel.selectedTrackId());
+    tracks.prepend(tracks.takeAt(11));
+    m_harness.replies["/api/agent"].insert("tracks", tracks);
+    m_pBridge->refreshSuggestions();
+    ASSERT_TRUE(waitFor([&] { return m_pBridge->suggestions().first().trackId == QStringLiteral("11") && !m_pBridge->agentBusy(); }));
+    EXPECT_EQ(QStringLiteral("11"), panel.selectedTrackId());
+    QDialog dialog(&panel);
+    dialog.setProperty("bitedjAssistDialog", true);
+    dialog.open();
+    QCoreApplication::processEvents();
+    panel.moveSelection(1);
+    EXPECT_EQ(QStringLiteral("11"), panel.selectedTrackId());
+    EXPECT_FALSE(panel.loadSelectedTrack(QStringLiteral("[Channel1]")));
+    dialog.close();
+    panel.hide();
+    EXPECT_EQ(nullptr, WHarnessPanel::activePanel());
 }

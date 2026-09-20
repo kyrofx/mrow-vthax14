@@ -144,7 +144,7 @@ class HarnessBridge : public QObject {
     /// Load the suggestion at `index` (0-based) into deck `deckNumber`
     /// (1-based). Refused, with a notification, when that deck is playing or
     /// the track's drive is not mounted.
-    void loadSuggestion(int index, int deckNumber);
+    bool loadSuggestion(int index, int deckNumber);
     void refreshSuggestions();
     /// Shared rolling setlist and runtime model controls for the native panel.
     QJsonObject agentPlan() const { return m_agentPlan; }
@@ -201,7 +201,7 @@ class HarnessBridge : public QObject {
     void pollGeneratedMusic();
     void mergeSuggestions();
     void consumeGenerated(const QString& path);
-    void loadTrack(const Suggestion& suggestion, int deckNumber);
+    bool loadTrack(const Suggestion& suggestion, int deckNumber);
     QNetworkReply* post(const QString& path, const QJsonObject& body, int timeoutMillis);
     void call(const QString& path, const QJsonObject& body, int timeoutMillis,
             QObject* context, HarnessWorker::Callback callback);

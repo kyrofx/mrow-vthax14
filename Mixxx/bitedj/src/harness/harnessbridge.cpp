@@ -409,11 +409,11 @@ void HarnessBridge::skipSuggestion(int index) {
              }});
 }
 
-void HarnessBridge::loadSuggestion(int index, int deckNumber) {
+bool HarnessBridge::loadSuggestion(int index, int deckNumber) {
     if (!m_enabled || index < 0 || index >= m_suggestions.size() || !m_pPlayerManager || agentBusy()) {
-        return;
+        return false;
     }
-    loadTrack(m_suggestions.at(index), deckNumber);
+    return loadTrack(m_suggestions.at(index), deckNumber);
 }
 
 void HarnessBridge::loadPlanTrack(int index, int deckNumber) {
@@ -429,18 +429,18 @@ void HarnessBridge::loadPlanTrack(int index, int deckNumber) {
     loadTrack(suggestion, deckNumber);
 }
 
-void HarnessBridge::loadTrack(const Suggestion& suggestion, int deckNumber) {
+bool HarnessBridge::loadTrack(const Suggestion& suggestion, int deckNumber) {
     if (!m_enabled || !m_pPlayerManager) {
-        return;
+        return false;
     }
     if (deckNumber < 1 || deckNumber > m_pPlayerManager->numberOfDecks()) {
-        return;
+        return false;
     }
     const QString group = PlayerManager::groupForDeck(deckNumber - 1);
     if (ControlObject::toBool(ConfigKey(group, QStringLiteral("play")))) {
         // Suggest, never interrupt: the playing deck is the set.
         publish(tr("Deck %1 is playing; load into the other deck").arg(deckNumber), true);
-        return;
+        return false;
     }
     QString location = mixxx::harness::locationForTrackId(suggestion.trackId, mountedDrives());
     if (location.isEmpty()) {
@@ -448,9 +448,10 @@ void HarnessBridge::loadTrack(const Suggestion& suggestion, int deckNumber) {
     }
     if (location.isEmpty() || !QFileInfo::exists(location)) {
         publish(tr("\"%1\" is on a drive that is not plugged in").arg(suggestion.title), true);
-        return;
+        return false;
     }
     m_pPlayerManager->slotLoadLocationToPlayer(location, group, false);
+    return true;
 }
 
 void HarnessBridge::planSet(int count, const QString& direction, bool clear) {

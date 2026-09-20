@@ -34,6 +34,12 @@ class WHarnessPanel : public WWidget {
     explicit WHarnessPanel(QWidget* parent = nullptr);
 
     void setup(const QDomNode& node, const SkinContext& context);
+    // Shared Library controls route to the visible Assist page, regardless of
+    // whether the input came from the built-in knob or an external controller.
+    static WHarnessPanel* activePanel();
+    void moveSelection(int steps);
+    bool loadSelectedTrack(const QString& group);
+    QString selectedTrackId() const { return m_selectedTrackId; }
 
   protected:
     void mousePressEvent(QMouseEvent* e) override;
@@ -49,6 +55,7 @@ class WHarnessPanel : public WWidget {
 
     QPushButton* addButton(const QString& text, const char* objectName, Action action);
     void rebuildSuggestions();
+    void updateSelection(bool reveal);
     void updateHeader();
     QDialog* createAssistDialog(const QString& name, const QString& title, const QSize& size);
     void showAgentSettings();
@@ -66,6 +73,8 @@ class WHarnessPanel : public WWidget {
     QList<QPushButton*> m_rateButtons;
     // Suggestion rows, rebuilt on every state change.
     QList<QWidget*> m_rowWidgets;
+    QList<QWidget*> m_suggestionRows;
+    QString m_selectedTrackId;
     // Every tappable button with what it does, for the touch hit-test.
     QList<QPair<QPushButton*, Action>> m_actions;
     DragState m_dragState = DragState::Idle;

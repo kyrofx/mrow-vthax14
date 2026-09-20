@@ -194,6 +194,74 @@ QPushButton* WHarnessPanel::addButton(
     return pButton;
 }
 
+WHarnessPanel* WHarnessPanel::activePanel() {
+    for (auto* widget : QApplication::allWidgets()) {
+        if (auto* panel = qobject_cast<WHarnessPanel*>(widget); panel && panel->isVisible()) {
+            return panel;
+        }
+    }
+    return nullptr;
+}
+
+void WHarnessPanel::moveSelection(int steps) {
+    auto* bridge = HarnessBridge::tryInstance();
+    if (!bridge || QApplication::activeModalWidget()) {
+        return;
+    }
+    const auto suggestions = bridge->suggestions();
+    if (suggestions.isEmpty()) {
+        return;
+    }
+    int selected = 0;
+    for (int i = 0; i < suggestions.size(); ++i) {
+        if (suggestions.at(i).trackId == m_selectedTrackId) selected = i;
+    }
+    const int count = suggestions.size();
+    selected = ((selected + steps % count) % count + count) % count;
+    m_selectedTrackId = suggestions.at(selected).trackId;
+    updateSelection(true);
+}
+
+bool WHarnessPanel::loadSelectedTrack(const QString& group) {
+    auto* bridge = HarnessBridge::tryInstance();
+    if (!bridge || QApplication::activeModalWidget() || !isVisible()) {
+        return false;
+    }
+    const int deck = group == QStringLiteral("[Channel1]") ? 1
+            : group == QStringLiteral("[Channel2]") ? 2 : 0;
+    if (!deck) {
+        return false;
+    }
+    const auto suggestions = bridge->suggestions();
+    for (int i = 0; i < suggestions.size(); ++i) {
+        if (suggestions.at(i).trackId == m_selectedTrackId) {
+            return bridge->loadSuggestion(i, deck);
+        }
+    }
+    return false;
+}
+
+void WHarnessPanel::updateSelection(bool reveal) {
+    for (auto* row : m_suggestionRows) {
+        const bool selected = row->property("suggestionTrackId").toString() == m_selectedTrackId;
+        row->setProperty(kSelectedProperty, selected);
+        restyle(row->style(), row);
+        row->update();
+    }
+    if (reveal) {
+        // A fresh response can replace rows in the same event turn as a knob
+        // tick. Let the scroll area's layout/range catch up before revealing.
+        QTimer::singleShot(0, this, [this] {
+            for (auto* row : m_suggestionRows) {
+                if (row->property("suggestionTrackId").toString() == m_selectedTrackId) {
+                    m_pScrollArea->ensureWidgetVisible(row, 0, 12);
+                    break;
+                }
+            }
+        });
+    }
+}
+
 void WHarnessPanel::onStateChanged() {
     updateHeader();
     rebuildSuggestions();
@@ -251,11 +319,13 @@ void WHarnessPanel::rebuildSuggestions() {
         pWidget->deleteLater();
     }
     m_rowWidgets.clear();
+    m_suggestionRows.clear();
 
     HarnessBridge* pBridge = HarnessBridge::tryInstance();
     const QList<HarnessBridge::Suggestion> suggestions =
             pBridge ? pBridge->suggestions() : QList<HarnessBridge::Suggestion>();
     if (suggestions.isEmpty()) {
+        m_selectedTrackId.clear();
         auto* pEmpty = new QLabel(pBridge && pBridge->status() != HarnessBridge::Status::Offline
                         ? tr("No suggestions yet. They appear once a drive is "
                              "scanned or a track has played.")
@@ -266,6 +336,14 @@ void WHarnessPanel::rebuildSuggestions() {
         m_pLayout->addWidget(pEmpty, kFirstSuggestionRow, 0, 1, kColumns);
         m_rowWidgets.append(pEmpty);
         return;
+    }
+
+    bool selectionPresent = false;
+    for (const auto& suggestion : suggestions) {
+        selectionPresent |= suggestion.trackId == m_selectedTrackId;
+    }
+    if (!selectionPresent) {
+        m_selectedTrackId = suggestions.first().trackId;
     }
 
     for (int i = 0; i < suggestions.size(); ++i) {
@@ -289,6 +367,8 @@ void WHarnessPanel::rebuildSuggestions() {
         auto* pLabel = new QLabel(
                 title + QLatin1Char('\n') + details.join(QStringLiteral("  ·  ")), this);
         pLabel->setObjectName(kSuggestionObjectName);
+        pLabel->setProperty("suggestionTrackId", suggestion.trackId);
+        m_suggestionRows.append(pLabel);
         pLabel->setTextFormat(Qt::PlainText);
         pLabel->setWordWrap(true);
         pLabel->setMinimumHeight(72);
@@ -314,6 +394,7 @@ void WHarnessPanel::rebuildSuggestions() {
         m_pLayout->addWidget(pSkip, row, kColumns - 1);
         m_rowWidgets.append(pSkip);
     }
+    updateSelection(false);
 }
 
 QDialog* WHarnessPanel::createAssistDialog(const QString& name, const QString& title, const QSize& size) {

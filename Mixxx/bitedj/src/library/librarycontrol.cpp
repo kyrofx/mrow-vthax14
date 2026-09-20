@@ -15,6 +15,7 @@
 #include "mixer/playermanager.h"
 #include "moc_librarycontrol.cpp"
 #include "widget/wlibrary.h"
+#include "widget/wharnesspanel.h"
 #include "widget/wlibrarysidebar.h"
 #include "widget/wsearchlineedit.h"
 #include "widget/wtracktableview.h"
@@ -612,6 +613,13 @@ void LibraryControl::slotUpdateTrackMenuControl(bool visible) {
 }
 
 void LibraryControl::slotLoadSelectedTrackToGroup(const QString& group, bool play) {
+    if (auto* assist = WHarnessPanel::activePanel()) {
+        // Assist never starts playback automatically, including LoadAndPlay.
+        if (assist->loadSelectedTrack(group)) {
+            bitedj_showPlayPage();
+        }
+        return;
+    }
     if (!m_pLibraryWidget || !bitedj_isLibraryPageActive()) {
         return;
     }
@@ -721,6 +729,10 @@ void LibraryControl::slotMoveDown(double v) {
 }
 
 void LibraryControl::slotMoveVertical(double v) {
+    if (auto* assist = WHarnessPanel::activePanel(); assist && !QApplication::activeModalWidget()) {
+        assist->moveSelection(static_cast<int>(v));
+        return;
+    }
     if (v == 0) {
         return;
     }
@@ -790,6 +802,10 @@ void LibraryControl::slotScrollDown(double v) {
 }
 
 void LibraryControl::slotScrollVertical(double v) {
+    if (auto* assist = WHarnessPanel::activePanel(); assist && !QApplication::activeModalWidget()) {
+        assist->moveSelection(static_cast<int>(v));
+        return;
+    }
     const auto key = (v < 0) ? Qt::Key_PageUp : Qt::Key_PageDown;
     const auto times = static_cast<unsigned short>(std::abs(v));
     emitKeyEvent(QKeyEvent{QEvent::KeyPress, key, Qt::NoModifier, QString(), false, times});
@@ -826,6 +842,11 @@ void LibraryControl::slotMoveFocusBackward(double v) {
 }
 
 void LibraryControl::slotMoveFocus(double v) {
+    if (auto* assist = WHarnessPanel::activePanel(); assist && !QApplication::activeModalWidget()) {
+        // Like Browse, encoder press focuses the selection; LOAD loads it.
+        assist->moveSelection(0);
+        return;
+    }
     if (m_focusedWidget == FocusWidget::Sidebar) {
         if (v > 0) {
             slotGoToItem(1);

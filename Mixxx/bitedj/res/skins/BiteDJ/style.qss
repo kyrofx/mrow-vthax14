@@ -1911,3 +1911,10 @@ QDialog[bitedjAssistDialog="true"] #AssistDialogTitle {
   font-size: 18px;
   font-weight: bold;
 }
+
+/* Encoder-selected recommendation, matching the browser's visible selection. */
+#HarnessPanel #HarnessSuggestion[selected="true"] {
+  background-color: #30203f;
+  border: 2px solid #b48ed6;
+  color: #ffffff;
+}

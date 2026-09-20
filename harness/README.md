@@ -329,6 +329,13 @@ Playing or skipping removes the generated priority entry persistently; the libra
 file remains. BPM/key are unknown until analyzed; the priority entry does not claim
 transition compatibility. Generation never loads a deck or starts playback.
 
+On the Assist page, the browse knob highlights a recommendation and scrolls it
+into view. The built-in and FLX4 **Load 1 / Load 2** buttons load that highlighted
+song into the corresponding stopped deck and return to Play. Turning past either
+end wraps the selection, as in Browse. The selected song is retained when advice
+reorders; if it disappears, the first remaining song is selected. Knob press brings
+the selection into view without loading. Open dialogs block deck-load shortcuts.
+
 Assist shows up to **12** entries. Generated entries have priority; remaining slots
 contain the model/local recommendations or the current rolling setlist. Local ranking
 excludes played/skipped tracks for the current set and unavailable drives. By default,
