@@ -17,6 +17,7 @@ Design notes for an 800x480 panel:
 import re
 import subprocess
 import threading
+import time
 
 import gi
 
@@ -35,7 +36,7 @@ except (ValueError, ImportError):
     GtkLayerShell = None
 
 ROW_HEIGHT = 64
-SCAN_SECONDS = 12
+SCAN_SECONDS = 25
 
 
 def run(*args, timeout=60):
@@ -65,6 +66,47 @@ def ensure_powered():
     bt("power", "on")
     bt("agent", "on")
     bt("default-agent")
+
+
+def scan_bredr(seconds):
+    """Discover over BR/EDR (classic) rather than the default "auto" filter.
+
+    Speakers are classic devices. With the default filter the airwaves are all
+    LE beacons, and a JBL turns up only as a nameless *random* address -- its
+    real address and name never reach bluez, so pairing afterwards fails with
+    "Device not available", because bluez only pairs with what its own
+    discovery registered. A raw `hcitool scan` finds the speaker fine, which
+    makes this look like a bluez bug rather than a filter setting.
+
+    The commands must run in ONE bluetoothctl session, because the filter is
+    per-session, and stdin has to stay open for the duration or bluetoothctl
+    exits at EOF and takes the scan with it.
+    """
+    script = "menu scan\ntransport bredr\nback\nscan on\n"
+    try:
+        p = subprocess.Popen(
+            ["bluetoothctl"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        p.stdin.write(script)
+        p.stdin.flush()
+        # Holding stdin open is what keeps the scan running.
+        time.sleep(seconds)
+        try:
+            p.stdin.write("scan off\nquit\n")
+            p.stdin.flush()
+            p.stdin.close()
+        except (BrokenPipeError, ValueError):
+            pass
+        p.wait(timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            p.kill()
+        except Exception:
+            pass
 
 
 def device_list(kind=None):
@@ -266,13 +308,14 @@ class Picker(Gtk.Window):
         self.work(lambda: bt("disconnect", mac), done=lambda _r: self.refresh())
 
     def on_scan(self, _button):
-        self.set_message(f"Scanning {SCAN_SECONDS}s -- put the speaker in pairing mode now")
+        self.set_message(
+            f"Scanning {SCAN_SECONDS}s. Hold the speaker's Bluetooth button until it "
+            "flashes fast. If it is connected to a phone, turn that off first."
+        )
 
         def job():
             ensure_powered()
-            # --timeout makes bluetoothctl exit on its own; no stray scan left on.
-            run("bluetoothctl", "--timeout", str(SCAN_SECONDS), "scan", "on",
-                timeout=SCAN_SECONDS + 15)
+            scan_bredr(SCAN_SECONDS)
             return True
 
         self.work(job, done=lambda _r: self.refresh())

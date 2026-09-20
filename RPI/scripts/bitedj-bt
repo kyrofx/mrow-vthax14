@@ -18,6 +18,29 @@ set -uo pipefail
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
+SCAN_SECONDS=${BITEDJ_BT_SCAN_SECONDS:-25}
+
+# Discover over BR/EDR (classic) rather than the default "auto" filter.
+#
+# Speakers are classic devices. With the default filter the airwaves are all LE
+# beacons, and a JBL turns up only as a nameless *random* address -- its real
+# address and name never reach bluez, so `pair` then fails with "Device not
+# available" because bluez will only pair with something its own discovery
+# registered. A raw `hcitool scan` shows the device fine, which makes this look
+# like a bluez bug rather than a filter setting.
+#
+# The commands have to run in ONE bluetoothctl session (the filter is per
+# session) and stdin must stay open, or bluetoothctl exits at EOF and takes the
+# scan with it.
+scan_bredr() {
+    local secs=${1:-25}
+    {
+        printf 'menu scan\ntransport bredr\nback\nscan on\n'
+        sleep "$secs"
+        printf 'scan off\nquit\n'
+    } | timeout $((secs + 20)) bluetoothctl >/dev/null 2>&1 || true
+}
+
 # The adapter is rfkill soft-blocked from cold on this box unless
 # bluetooth-unblock.service has run. Without this, every command below fails
 # with org.bluez.Error.NotReady, which does not mention rfkill at all.
@@ -36,9 +59,11 @@ ensure_powered() {
 case "${1:-status}" in
     scan)
         ensure_powered
-        say "Scanning for 20s -- put the speaker in pairing mode NOW"
-        echo "    (JBL: hold the Bluetooth button until it beeps and flashes)"
-        timeout 25 bluetoothctl --timeout 20 scan on >/dev/null 2>&1
+        say "Scanning for ${SCAN_SECONDS}s -- put the speaker in pairing mode NOW"
+        echo "    (JBL: hold the Bluetooth button until it beeps and flashes fast."
+        echo "     If it is connected to a phone, turn the phone's Bluetooth off"
+        echo "     first -- it will not enter pairing mode while connected.)"
+        scan_bredr "$SCAN_SECONDS"
         say "Devices with a name (a bare MAC as the name is not a speaker)"
         bluetoothctl devices | while read -r _ mac name; do
             # bluez uses the MAC as the name when the device never advertised
