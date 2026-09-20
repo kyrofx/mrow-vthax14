@@ -49,6 +49,11 @@ LaunchImage::LaunchImage(QWidget* pParent, const QString& styleSheet)
 
     auto* content = new QWidget(this);
     m_pContent = content;
+    // Hiding the live widgets during the snapshot fade must not collapse the
+    // layout or change the splash's size hint.
+    auto contentPolicy = content->sizePolicy();
+    contentPolicy.setRetainSizeWhenHidden(true);
+    content->setSizePolicy(contentPolicy);
     QLabel* label = new QLabel(content);
 
     m_pProgressBar = new QProgressBar(content);
@@ -133,7 +138,9 @@ void LaunchImage::paintEvent(QPaintEvent *)
     p.fillRect(rect(), Qt::black);
     if (m_fadingOut) {
         p.setOpacity(m_fadeOpacity);
-        p.drawPixmap(rect(), m_fadeFrame);
+        // Keep the capture at its original logical position and scale, including
+        // its device pixel ratio. A late resize must not stretch the artwork.
+        p.drawPixmap(QPoint(0, 0), m_fadeFrame);
         return;
     }
     QStyleOption opt;
