@@ -1487,6 +1487,8 @@ WBeatSpinBox::up-button {
 /* ------------------------------------------------------------------ */
 
 #Assist {
+  background-color: black;
+  color: #e5e6ea;
   padding: 10px 16px;
 }
 
@@ -1723,7 +1725,9 @@ WBeatSpinBox::up-button {
 #UsbList #UsbScrollArea,
 #UsbList #UsbScrollContent,
 #ControllerList #ControllerScrollArea,
-#ControllerList #ControllerScrollContent {
+#ControllerList #ControllerScrollContent,
+#HarnessPanel #HarnessScrollArea,
+#HarnessPanel #HarnessScrollContent {
   background-color: transparent;
   border: 0;
 }
@@ -1865,4 +1869,29 @@ WBeatSpinBox::up-button {
 
 #SettingsDangerButton[pressed="true"] {
   background-color: #7a2622;
+}
+
+/* Native music controls inherit the appliance theme, including on light desktops. */
+#HarnessMusicDialog {
+  background-color: #151515;
+  color: #e5e6ea;
+}
+#HarnessMusicDialog QLabel,
+#HarnessMusicDialog QCheckBox {
+  color: #e5e6ea;
+  background-color: transparent;
+}
+#HarnessMusicDialog QPushButton,
+#HarnessMusicDialog QLineEdit,
+#HarnessMusicDialog QSpinBox,
+#HarnessMusicDialog QComboBox,
+#HarnessMusicDialog QListWidget {
+  background-color: #222222;
+  color: #e5e6ea;
+  border: 1px solid #855ea7;
+  padding: 6px;
+}
+#HarnessMusicDialog QPushButton:disabled {
+  color: #777777;
+  border-color: #444444;
 }

@@ -80,15 +80,18 @@ WHarnessPanel::WHarnessPanel(QWidget* parent)
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->addWidget(m_pScrollArea);
+    m_pScrollArea->setObjectName(QStringLiteral("HarnessScrollArea"));
+    m_pContent->setObjectName(QStringLiteral("HarnessScrollContent"));
     m_pScrollArea->setFrameShape(QFrame::NoFrame);
     m_pScrollArea->setWidgetResizable(true);
     m_pScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_pScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_pScrollArea->viewport()->setAutoFillBackground(false);
     m_pScrollArea->verticalScrollBar()->setSingleStep(40);
-    m_pContent->setAutoFillBackground(false);
     m_pLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
     m_pScrollArea->setWidget(m_pContent);
+    // setWidget() enables auto-fill; disable it after attaching the content.
+    m_pContent->setAutoFillBackground(false);
 
     m_pLayout->setContentsMargins(0, 0, 0, 0);
     m_pLayout->setHorizontalSpacing(6);
@@ -288,6 +291,7 @@ void WHarnessPanel::showAgentSettings() {
         return;
     }
     auto* dialog = new QDialog(this);
+    dialog->setProperty("bitedjAssistDialog", true);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(tr("Agent models · Google Cloud Gemini"));
     dialog->resize(640, 420);
@@ -403,6 +407,7 @@ void WHarnessPanel::showSetlist() {
         return;
     }
     auto* dialog = new QDialog(this);
+    dialog->setProperty("bitedjAssistDialog", true);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(tr("Agent setlist"));
     dialog->resize(760, 480);
@@ -618,15 +623,32 @@ void WHarnessPanel::forwardToScrollBar(QMouseEvent* pEvent) {
 }
 
 void WHarnessPanel::showMusicGeneration() {
-    auto* bridge = HarnessBridge::tryInstance();
-    if (!bridge) {
+    if (auto* existing = findChild<QDialog*>(QStringLiteral("HarnessMusicDialog"))) {
+        existing->open();
+        existing->raise();
+        existing->activateWindow();
         return;
     }
+    auto* bridge = HarnessBridge::tryInstance();
     auto* dialog = new QDialog(this);
+    dialog->setProperty("bitedjAssistDialog", true);
+    dialog->setObjectName(QStringLiteral("HarnessMusicDialog"));
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(tr("Generate song · ElevenLabs"));
     dialog->resize(640, 480);
     auto* layout = new QVBoxLayout(dialog);
+    if (!bridge) {
+        auto* error = new QLabel(tr("The assistant is unavailable. Restart BiteDJ to start the built-in agent."), dialog);
+        error->setWordWrap(true);
+        layout->addWidget(error);
+        auto* close = new QPushButton(tr("Close"), dialog);
+        layout->addWidget(close);
+        connect(close, &QPushButton::clicked, dialog, &QDialog::close);
+        dialog->open();
+        dialog->raise();
+        dialog->activateWindow();
+        return;
+    }
     auto* note = new QLabel(tr("Create original music from Good / Mid / Bad ratings of played songs across sets. "
                               "Each generation uses your ElevenLabs balance and saves an MP3 automatically. "
                               "Add the saved song to Mixxx and analyze it before using it in recommendations."), dialog);
@@ -759,5 +781,7 @@ void WHarnessPanel::showMusicGeneration() {
                 });
     });
     refresh();
-    dialog->show();
+    dialog->open();
+    dialog->raise();
+    dialog->activateWindow();
 }
