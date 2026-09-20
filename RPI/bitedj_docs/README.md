@@ -35,8 +35,10 @@ Built and running on boot, verified across four reboots on 2026-09-19.
    on the Pi, and deploying the result over ssh.
 8. **[fork-patches.md](fork-patches.md)** — the local changes carried on top of the
    BiteDJ fork, and why. Read before merging upstream.
-9. **[troubleshooting.md](troubleshooting.md)** — every failure hit during bring-up, with
-   the actual diagnosis. Start here when something breaks.
+9. **[stems.md](stems.md)** — plan for playing pre-separated vocal/instrumental
+   stems, and why they get mixed before the timestretcher rather than after.
+10. **[troubleshooting.md](troubleshooting.md)** — every failure hit during bring-up, with
+    the actual diagnosis. Start here when something breaks.
 
 ## The short version of what bites people
 
